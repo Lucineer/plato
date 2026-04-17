@@ -209,6 +209,34 @@ class EpisodeRecorder:
 
         return "Past experience:\n" + "\n".join(parts)
 
+    def recall_signals(self, room_id: str) -> dict:
+        """Get learned attention signals for JIT tile ranking.
+
+        Returns {query_pattern: signal_strength} where:
+        - positive outcome + high strength = signal > 0.7
+        - negative outcome + high strength = signal < 0.3
+        - neutral/decayed = signal ≈ 0.5
+
+        This is the ghost-tiles-inspired bridge between muscle memory and JIT.
+        """
+        episodes = self._load_room(room_id)
+        if not episodes:
+            return {}
+
+        signals = {}
+        for ep in episodes:
+            if ep.strength < 0.1:
+                continue  # too decayed to matter
+            # Map outcome to signal: positive→boost, negative→penalize
+            if ep.outcome == "positive":
+                signal = 0.5 + (ep.strength * 0.5)  # 0.5-1.0
+            elif ep.outcome == "negative":
+                signal = 0.5 - (ep.strength * 0.4)  # 0.1-0.5
+            else:
+                signal = 0.5  # neutral
+            signals[ep.query_pattern] = signal
+        return signals
+
     def room_stats(self, room_id: str) -> dict:
         """Get episode statistics for a room."""
         episodes = self._load_room(room_id)

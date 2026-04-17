@@ -375,8 +375,12 @@ class NPCLayer:
 
         # Semantic Muscle Memory: recall relevant past episodes
         episode_context = self.episodes.recall_context(room_id, query, limit=3)
+        # Ghost-tiles-inspired: get learned attention signals for tile ranking
+        episode_signals = self.episodes.recall_signals(room_id)
         if episode_context:
             self.audit._append(room_id, f"EPISODE RECALL: {len(episode_context.splitlines())} lines")
+        if episode_signals:
+            self.audit._append(room_id, f"EPISODE SIGNALS: {len(episode_signals)} learned attention weights")
 
         # Word Anchors: expand any anchor references in query + tiles
         anchor_tiles = self.anchors.expand_context(
@@ -400,7 +404,8 @@ class NPCLayer:
             theme=room_info.get('theme', ''),
             conversation_context=conversation_context,
             iteration=iteration,
-            episode_context=episode_context
+            episode_context=episode_context,
+            episode_signals=episode_signals
         )
 
         # Track JIT metrics

@@ -108,7 +108,8 @@ class Tier2Context:
 
     def build(self, query: str, tiles: list,
               conversation_context: list = None,
-              iteration: int = 1) -> str:
+              iteration: int = 1,
+              episode_signals: dict = None) -> str:
         """Build Tier 2 context from ranked tiles + recent conversation.
 
         Args:
@@ -116,11 +117,12 @@ class Tier2Context:
             tiles: List of Tile objects (already filtered to room)
             conversation_context: Previous [(role, text)] exchanges
             iteration: Which attempt number this is
+            episode_signals: {query: signal_strength} learned attention weights
         """
         parts = []
 
         # Rank tiles by relevance to query
-        ranked = self._rank_tiles(query, tiles)
+        ranked = self._rank_tiles(query, tiles, episode_signals)
         selected = ranked[:self.max_tiles]
 
         # Build tile context
@@ -161,12 +163,22 @@ class Tier2Context:
             self.build(query, tiles, conversation_context)
         )
 
-    def _rank_tiles(self, query: str, tiles: list) -> List[Tuple]:
+    def _rank_tiles(self, query: str, tiles: list,
+                     episode_signals: dict = None) -> List[Tuple]:
         """Rank tiles by relevance to query.
 
-        Score = word_overlap * 0.6 + quality_score * 0.4
+        Score = word_overlap * 0.5 + quality * 0.25 + episode_signal * 0.25
+
+        Args:
+            query: The visitor's question
+            tiles: List of Tile objects
+            episode_signals: {tile.question: signal_strength} from muscle memory.
+                Tiles that led to positive outcomes get boosted;
+                tiles that led to negative outcomes get penalized.
+                This is the ghost-tiles-inspired learned attention weighting.
         """
         query_words = set(w.lower() for w in re.findall(r'\w+', query) if len(w) > 2)
+        episode_signals = episode_signals or {}
 
         scored = []
         for tile in tiles:
@@ -183,7 +195,22 @@ class Tier2Context:
             # Quality score (from feedback)
             quality = tile.score if hasattr(tile, 'score') else 0.5
 
-            combined = (overlap * 0.6) + (quality * 0.4)
+            # Episode signal (ghost-tiles-inspired learned attention)
+            # Boost tiles that helped before, penalize tiles that hurt
+            signal = 0.5  # neutral default
+            best_sim = 0.0
+            for q_text, strength in episode_signals.items():
+                q_words = set(w.lower() for w in re.findall(r'\w+', q_text) if len(w) > 2)
+                if q_words and tile_words:
+                    sim = len(q_words & tile_words) / len(q_words | tile_words)
+                    if sim > best_sim:
+                        best_sim = sim
+                        signal = max(signal, strength) if strength > 0.5 else min(signal, strength)
+            # Only apply if we have a meaningful episode match
+            if best_sim < 0.15:
+                signal = 0.5  # no meaningful episode match, stay neutral
+
+            combined = (overlap * 0.5) + (quality * 0.25) + (signal * 0.25)
             scored.append((tile, combined))
 
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -225,7 +252,9 @@ class JITContext:
                             assertions: List[dict] = None,
                             state_current: str = "", theme: str = "",
                             conversation_context: list = None,
-                            iteration: int = 1) -> Tuple[str, dict]:
+                            iteration: int = 1,
+                            episode_context: str = "",
+                            episode_signals: dict = None) -> Tuple[str, dict]:
         """Build the complete JIT system prompt.
 
         Returns:
@@ -244,7 +273,8 @@ class JITContext:
         t1 = self.tier1.build()
 
         # Build Tier 2
-        t2 = self.tier2.build(query, tiles, conversation_context, iteration)
+        t2 = self.tier2.build(query, tiles, conversation_context, iteration,
+                               episode_signals=episode_signals)
 
         # Compose final prompt
         ordinal = {1: "1st", 2: "2nd", 3: "3rd"}.get(iteration, f"{iteration}th")
