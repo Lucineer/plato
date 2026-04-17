@@ -81,14 +81,14 @@ def main():
 
     if args.both:
         import threading
-        from plato_core.web import run_web
+        from plato_core.ide import run_ide
         from plato_core.server import run_server
-        web_thread = threading.Thread(target=run_web, args=(config,), daemon=True)
+        web_thread = threading.Thread(target=run_ide, args=(config,), daemon=True)
         web_thread.start()
         run_server(config)
     elif args.web:
-        from plato_core.web import run_web
-        run_web(config)
+        from plato_core.ide import run_ide
+        run_ide(config)
     else:
         from plato_core.server import run_server
         run_server(config)

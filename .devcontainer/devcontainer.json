@@ -1,0 +1,32 @@
+{
+  "name": "⚡ PLATO IDE",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  "forwardPorts": [4040, 8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "PLATO Web IDE",
+      "onAutoForward": "openBrowser"
+    },
+    "4040": {
+      "label": "PLATO Telnet (for Claude Code / aider / OpenClaw)",
+      "onAutoForward": "silent"
+    }
+  },
+
+  "postCreateCommand": "pip install pyyaml && python3 -m plato --both",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "redhat.yaml"],
+      "settings": {
+        "editor.fontFamily": "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
+        "editor.fontSize": 13,
+        "workbench.colorTheme": "Default Dark+",
+        "terminal.integrated.scrollback": 10000
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}

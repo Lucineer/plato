@@ -1,0 +1,14 @@
+test_room:
+  description: A test
+  exits: []
+  metadata:
+    starting_room: false
+  name: Test Room
+  npc:
+    greeting: Hi
+    model_tier: tiny
+    name: Bot
+    personality: ''
+  room_id: test_room
+  seed_tiles: []
+  theme: custom
