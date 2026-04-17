@@ -399,10 +399,12 @@ plato/
 ├── plato_core/                        # Core library
 │   ├── tiles.py                       #   Tile + TileStore (persistence)
 │   ├── rooms.py                       #   Room + RoomManager (YAML loading)
-│   ├── npc.py                         #   Three-tier NPC layer
+│   ├── npc.py                         #   Two-gear NPC (tile-only + LLM synthesis)
 │   ├── onboard.py                     #   Persona detection + onboarding
 │   ├── server.py                      #   Telnet server (asyncio)
-│   └── web.py                         #   Web UI + REST API
+│   ├── ide.py                         #   Web IDE + REST API (split-panel)
+│   ├── ws.py                          #   WebSocket (real-time multi-visitor)
+│   └── web.py                         #   Legacy web UI (backward compat)
 │
 ├── templates/                         # Room definitions (YAML)
 │   ├── plato/rooms.yaml               #   Entrance hub (1 room)
@@ -438,17 +440,36 @@ plato/
 
 ---
 
+## Connected Repos
+
+| Repo | Purpose |
+|------|--------|
+| [plato](https://github.com/Lucineer/plato) | THE reference repo (you are here) |
+| [plato-jetson](https://github.com/Lucineer/plato-jetson) | Evennia MUD instance (Oracle1) |
+| [plato-os](https://github.com/Lucineer/plato-os) | Edge OS (Jetson + ESP32 + Git) |
+| [plato-forge](https://github.com/Lucineer/plato-forge) | GPU benchmarking room (Forgemaster) |
+| [ct-lab](https://github.com/Lucineer/ct-lab) | Constraint Theory validation room |
+| [plato-chess-dojo](https://github.com/Lucineer/plato-chess-dojo) | Chess optimization room |
+| [plato-papers](https://github.com/Lucineer/plato-papers) | Engineer + white paper, workshop |
+| [zeroclaws](https://github.com/Lucineer/zeroclaws) | Bridge Pattern agents |
+| [plato-library](https://github.com/Lucineer/plato-library) | Knowledge base room |
+| [plato-harbor](https://github.com/Lucineer/plato-harbor) | Fleet coordination room |
+| [plato-study](https://github.com/Lucineer/plato-study) | Research room with rewind/fork |
+| [flux-emergence-research](https://github.com/Lucineer/flux-emergence-research) | 80+ CUDA experiments, 39+ laws |
+| [forgemaster](https://github.com/Lucineer/forgemaster) | Forgemaster vessel (RTX 4050) |
+
 ## Roadmap
 
-- [ ] **WebSocket support** — real-time visitor-to-visitor interaction
-- [ ] **Multi-language NPCs** — room personality in any language
-- [ ] **Embedded PLATO** — `<iframe>` embeddable widget for any website
-- [ ] **PLATO-to-PLATO federation** — agents visit each other's rooms
-- [ ] **Tiny model inference** — on-device NPC (phi-4, Qwen3-32B) for air-gap
-- [ ] **PLATO Studio** — visual room builder (no YAML needed)
-- [ ] **Tile marketplace** — share/sell room tiles between PLATO instances
-- [ ] **GitHub App** — auto-create PLATO for any repo
-- [ ] **Mobile app** — onboarding → room → tiles in 60 seconds
+- [x] **v0.1** — Telnet MUD, room templates, tile system, NPC
+- [x] **v0.2** — Web IDE, Codespaces, 14 READMEs, room editor
+- [x] **v0.3** — Two-gear NPC, WebSocket, clunk signals, conversation iteration tracking
+- [ ] **v0.4** — Embedded PLATO (`<iframe>` widget), tile marketplace
+- [ ] **v0.5** — PLATO-to-PLATO federation, agents visit each other's rooms
+- [ ] **v0.6** — Tiny model inference (phi-4, Qwen3-32B on-device)
+- [ ] **v0.7** — PLATO Studio (visual room builder, no YAML needed)
+- [ ] **v0.8** — GitHub App (auto-create PLATO for any repo)
+- [ ] **v0.9** — Mobile app (onboarding → room → tiles in 60 seconds)
+- [ ] **v1.0** — Production-ready, multi-language NPCs, LoRA flywheel complete
 
 ---
 
