@@ -51,6 +51,9 @@ class Room:
     seed_tiles: List[dict] = field(default_factory=list)
     permissions: Dict[str, str] = field(default_factory=dict)  # visitor_id -> perm_level
     metadata: Dict = field(default_factory=dict)
+    # Plato-First Runtime extensions
+    state_diagram: str = ""   # Mermaid stateDiagram-v2 (optional)
+    assertions_md: str = ""   # Assertive Markdown bullets (optional)
 
     def to_dict(self):
         return {
@@ -62,7 +65,9 @@ class Room:
             "npc": self.npc.to_dict() if self.npc else None,
             "seed_tiles": self.seed_tiles,
             "permissions": self.permissions,
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "state_diagram": self.state_diagram,
+            "assertions_md": self.assertions_md
         }
 
     @classmethod
@@ -78,7 +83,9 @@ class Room:
             npc=npc,
             seed_tiles=data.get("seed_tiles", []),
             permissions=data.get("permissions", {}),
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
+            state_diagram=data.get("state_diagram", ""),
+            assertions_md=data.get("assertions_md", "")
         )
 
 

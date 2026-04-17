@@ -1,14 +1,57 @@
-test_room:
-  description: A test
-  exits: []
-  metadata:
-    starting_room: false
-  name: Test Room
+# Medical Diagnosis Demo — Plato-First Runtime showcase
+# Demonstrates: Mermaid state machines + Assertive Markdown
+
+medical_diagnosis:
+  room_id: medical_diagnosis
+  name: "Medical Diagnosis Room"
+  description: |
+    A clinical consultation room where experience accumulates from every
+    patient interaction. The NPC follows a structured diagnostic flow and
+    is bound by safety assertions that prevent dangerous advice.
+  theme: classroom
   npc:
-    greeting: Hi
-    model_tier: tiny
-    name: Bot
-    personality: ''
-  room_id: test_room
-  seed_tiles: []
-  theme: custom
+    name: "Dr. Chen"
+    personality: "Professional, thorough, cautious. Always double-checks."
+    greeting: "I'm Dr. Chen. I'll help you work through this step by step. Please describe your symptoms."
+    model_tier: mid
+  exits:
+    - direction: north
+      target_room: classroom_main
+      description: "Back to the Classroom"
+  state_diagram: |
+    stateDiagram-v2
+        [*] --> Intake
+        Intake --> AssessSymptoms: symptoms described
+        Intake --> Clarify: vague description
+        Clarify --> AssessSymptoms: more details
+        AssessSymptoms --> TileMatch: relevant keywords
+        AssessSymptoms --> Fallback: rare condition
+        Fallback --> Consult: escalate
+        TileMatch --> Synthesize: tiles found
+        TileMatch --> Fallback: no tiles
+        Synthesize --> Verify: response ready
+        Verify --> Deliver: assertions passed
+        Verify --> Synthesize: assertions failed
+        Consult --> [*]
+        Deliver --> FollowUp: patient satisfied
+        Deliver --> Consult: patient uncertain
+        FollowUp --> [*]
+  assertions_md: |
+    ## Safety Assertions
+    - [MUST] Include patient age in assessment
+    - [MUST NOT] Never recommend medication without dosage
+    - [SHOULD] Offer specialist referral for complex cases
+    - [MUST] Acknowledge uncertainty explicitly
+  seed_tiles:
+    - question: "What should I do for a headache?"
+      answer: "For tension headaches: acetaminophen 500mg every 6 hours (max 3g/day) or ibuprofen 200mg every 4-6 hours with food. Stay hydrated. If headaches persist beyond 3 days, occur with fever/stiff neck/vision changes, or are the worst headache of your life — seek emergency care immediately."
+      source: system
+      tags: [headache, pain, common]
+    - question: "When should I see a doctor for a cough?"
+      answer: "See a doctor if: cough lasts >3 weeks, you cough up blood, difficulty breathing, chest pain, fever >101°F for >3 days, or cough worsens after initial improvement. For a simple cold-related cough: rest, fluids, honey for sore throat. Over-the-counter dextromethorphan can help with dry cough at night."
+      source: system
+      tags: [cough, respiratory, when-to-see-doctor]
+    - question: "How do I know if it's a sprain or fracture?"
+      answer: "Both cause pain and swelling. Signs suggesting fracture: inability to bear weight, visible deformity, numbness/tingling, bone protruding. Signs suggesting sprain: can bear some weight, swelling without deformity, pain with movement but not at rest. When in doubt, get an X-ray. RICE protocol (Rest, Ice, Compression, Elevation) helps both in the first 48 hours."
+      source: system
+      tags: [injury, orthopedic, sprain, fracture]

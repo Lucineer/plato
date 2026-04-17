@@ -8,9 +8,11 @@ The scripts keep running without an agent. The agent makes them better.
 """
 
 import json, os, time, urllib.request, urllib.error, re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from plato_core.tiles import Tile, TileStore
 from plato_core.audit import AuditLog
+from plato_core.statemachine import StateMachine
+from plato_core.assertions import AssertionEngine, Severity
 
 
 class NPCLayer:
@@ -27,6 +29,50 @@ class NPCLayer:
                       "new_tiles": 0, "total_queries": 0, "iterations": 0,
                       "clunk_signals": []}
         self._conversations = {}  # visitor_id -> [(role, content)]
+        # Plato-First Runtime: per-room state machines and assertion engines
+        self._state_machines: Dict[str, StateMachine] = {}
+        self._assertion_engines: Dict[str, AssertionEngine] = {}
+
+    def load_room_runtime(self, room_id: str, state_diagram: str = "",
+                              assertions_md: str = "") -> dict:
+        """Load Plato-First Runtime extensions for a room.
+
+        Parses Mermaid state diagram and assertion markdown.
+        Returns status dict with what was loaded.
+        """
+        status = {"state_machine": False, "assertions": 0, "assertion_details": {}}
+
+        if state_diagram and state_diagram.strip():
+            sm = StateMachine(state_diagram)
+            self._state_machines[room_id] = sm
+            status["state_machine"] = True
+            status["sm_states"] = len(sm.states)
+            status["sm_transitions"] = sum(len(v) for v in sm.transitions.values())
+
+        if assertions_md and assertions_md.strip():
+            ae = AssertionEngine(max_retries=3)
+            ae.load_from_markdown(assertions_md, source=f"room:{room_id}")
+            self._assertion_engines[room_id] = ae
+            status["assertions"] = len(ae.assertions)
+            status["assertion_details"] = ae.to_dict()
+
+        return status
+
+    def get_room_state(self, room_id: str) -> Optional[dict]:
+        """Get current state machine state for a room."""
+        sm = self._state_machines.get(room_id)
+        return sm.to_dict() if sm else None
+
+    def reset_room_state(self, room_id: str):
+        """Reset state machine for a room (new session)."""
+        sm = self._state_machines.get(room_id)
+        if sm:
+            sm.reset()
+
+    def get_room_assertions(self, room_id: str) -> Optional[dict]:
+        """Get assertion engine status for a room."""
+        ae = self._assertion_engines.get(room_id)
+        return ae.to_dict() if ae else None
 
     def _call_model(self, prompt: str, system: str = "", model: str = None,
                     temperature: float = 0.7, max_tokens: int = 800) -> Optional[str]:
@@ -95,6 +141,14 @@ class NPCLayer:
         conv = self._conversations.setdefault(visitor_id, [])
         conv.append(("user", query))
 
+        # Plato-First Runtime: advance state machine on query
+        sm = self._state_machines.get(room_id)
+        if sm:
+            old_state = sm.current
+            sm.transition(query)
+            if sm.current != old_state:
+                self.audit._append(room_id, f"STATE: {old_state} → {sm.current}")
+
         # Count how many times this visitor has asked about this topic
         iteration = self._count_related_queries(conv, query)
         self.stats["iterations"] = max(self.stats.get("iterations", 0), iteration)
@@ -108,6 +162,18 @@ class NPCLayer:
             self.audit.tile_match(room_id, best_tile.tile_id, best_tile.score, "tiny")
             response = self._format_tile_response(best_tile, npc_personality, query)
             conv.append(("npc", response))
+
+            # Plato-First Runtime: assertion check on gear 1 responses
+            response = self._apply_assertions(room_id, response, {"confidence": best_tile.score})
+
+            # Plato-First Runtime: advance state machine on response
+            sm = self._state_machines.get(room_id)
+            if sm:
+                old_state = sm.current
+                sm.transition(response)
+                if sm.current != old_state:
+                    self.audit._append(room_id, f"STATE (response): {old_state} → {sm.current}")
+
             return {
                 "response": response,
                 "tier": "tiny",
@@ -144,6 +210,18 @@ class NPCLayer:
                 self.audit.new_tile(room_id, new_tile.tile_id, "mid-tier")
                 conv.append(("npc", synthesis))
 
+                # Plato-First Runtime: assertion check on gear 2 responses
+                synthesis = self._apply_assertions(room_id, synthesis,
+                                                   {"confidence": 0.7, "iteration": iteration})
+
+                # Plato-First Runtime: advance state machine on response
+                sm = self._state_machines.get(room_id)
+                if sm:
+                    old_state = sm.current
+                    sm.transition(synthesis)
+                    if sm.current != old_state:
+                        self.audit._append(room_id, f"STATE (response): {old_state} → {sm.current}")
+
                 # Log clunk signal if this took multiple iterations
                 if iteration >= 3:
                     self.audit.clunk_signal(room_id, query, iteration)
@@ -178,6 +256,31 @@ class NPCLayer:
             "new_tile_created": False,
             "conversation_iteration": iteration
         }
+
+    def _apply_assertions(self, room_id: str, response: str,
+                             context: dict = None) -> str:
+        """Check response against room assertions. Returns original or annotated response."""
+        ae = self._assertion_engines.get(room_id)
+        if not ae:
+            return response
+
+        passed, failures = ae.check(response, context)
+        if passed:
+            return response
+
+        # Log assertion violations
+        for f in failures:
+            self.audit._append(room_id, f"ASSERTION VIOLATION [{f['severity'].upper()}]: {f['reason']}")
+
+        if ae.should_block(failures):
+            # Hard constraint violated — append warning
+            violation_summary = "⚠️ " + "; ".join(
+                f["reason"][:60] for f in failures if f["severity"] in ("must", "must_not")
+            )
+            return response + f"\n\n{violation_summary}"
+
+        # Soft constraint — just warn in audit
+        return response
 
     def _threshold(self, iteration: int) -> float:
         """Lower the confidence threshold as iterations increase.

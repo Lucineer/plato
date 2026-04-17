@@ -87,6 +87,9 @@ class PlatoSession:
         # Place in starting room
         self.current_room = profile["starting_room"]
 
+        # Load Plato-First Runtime extensions for starting room
+        self._load_room_runtime(self.current_room)
+
         await self.send("")
         persona_info = PERSONAS.get(profile["persona"], PERSONAS["explorer"])
         await self.send(f"\033[1;33mDetected persona: {persona_info['description']}\033[0m")
@@ -126,6 +129,7 @@ class PlatoSession:
             return
 
         self.current_room = target
+        self._load_room_runtime(target)
         await self.look()
 
         # NPC greeting in new room
@@ -136,6 +140,18 @@ class PlatoSession:
     async def say(self, text: str):
         """Say something in the room (visible to other visitors)."""
         await self.send(f"\033[1;34m{self.visitor['visitor_name']}\033[0m: {text}")
+
+    def _load_room_runtime(self, room_id: str):
+        """Load state machine and assertions for a room from its template."""
+        room = self.room_manager.get(room_id)
+        if not room:
+            return
+        if room.state_diagram or room.assertions_md:
+            status = self.npc.load_room_runtime(
+                room_id,
+                state_diagram=room.state_diagram,
+                assertions_md=room.assertions_md
+            )
 
     async def ask(self, query: str):
         """Ask the room's NPC a question."""
@@ -228,6 +244,8 @@ class PlatoSession:
         await self.send("  \033[1mstats\033[0m            Show room and NPC stats")
         await self.send("  \033[1mwho\033[0m              Show visitors online")
         await self.send("  \033[1mmap\033[0m              Show room connections")
+        await self.send("  \033[1mstate\033[0m            Show state machine (if active)")
+        await self.send("  \033[1massertions\033[0m       Show assertions (if active)")
         await self.send("  \033[1mexport\033[0m           Export tiles for LoRA training")
         await self.send("  \033[1mquit\033[0m             Leave PLATO")
 
@@ -251,6 +269,33 @@ class PlatoSession:
             exits = ", ".join(e.direction for e in room.exits) if room.exits else "(no exits)"
             await self.send(f"  \033[1m{room.name}\033[0m [{room_id}]{marker}")
             await self.send(f"    → {exits}")
+
+    async def show_room_state(self):
+        """Show state machine state for current room."""
+        state = self.npc.get_room_state(self.current_room)
+        if not state:
+            await self.send("No state machine active in this room.")
+            return
+        await self.send(f"\033[1;36m📊 State Machine: {self.current_room}\033[0m")
+        await self.send(f"  Current: \033[1m{state['current']}\033[0m")
+        await self.send(f"  Initial: {state['initial']} | Final: {state['final']}")
+        await self.send(f"  States: {', '.join(state['states'])}")
+        await self.send(f"  Transitions: {state['transitions']}")
+        await self.send(f"  History: {state['history_length']} steps")
+
+    async def show_room_assertions(self):
+        """Show assertion engine status for current room."""
+        info = self.npc.get_room_assertions(self.current_room)
+        if not info:
+            await self.send("No assertions active in this room.")
+            return
+        await self.send(f"\033[1;36m🛡️ Assertions: {self.current_room}\033[0m")
+        await self.send(f"  Total: {info['total']} ({info['hard']} hard, {info['soft']} soft)")
+        await self.send(f"  Violations: {info['violations_total']}")
+        for a in info['assertions']:
+            icon = "🔴" if a['severity'] in ('must', 'must_not') else "🟡"
+            v = f" ({a['violations']} violations)" if a['violations'] > 0 else ""
+            await self.send(f"  {icon} [{a['severity'].upper()}] {a['text'][:60]}{v}")
 
     async def handle_command(self, line: str):
         """Parse and execute a command."""
@@ -282,6 +327,10 @@ class PlatoSession:
             await self.show_stats()
         elif cmd == "map":
             await self.show_map()
+        elif cmd in ("state", "!state"):
+            await self.show_room_state()
+        elif cmd in ("assertions", "!assertions"):
+            await self.show_room_assertions()
         elif cmd == "who":
             await self.send(f"Visitors online: {self.visitor['visitor_name']}")
         elif cmd == "export":

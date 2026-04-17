@@ -88,9 +88,10 @@ class StateMachine:
             return None
 
         trigger_lower = trigger.lower()
+        trans = self.transitions[self.current]
 
         # Check all transitions from current state
-        for label, target in self.transitions[self.current].items():
+        for label, target in trans.items():
             if label == '_default':
                 continue
             # Check if the normalized label words appear in trigger
@@ -101,8 +102,16 @@ class StateMachine:
                 return target
 
         # Check default transition (no label)
-        if '_default' in self.transitions[self.current]:
-            target = self.transitions[self.current]['_default']
+        if '_default' in trans:
+            target = trans['_default']
+            self.history.append((self.current, target, trigger))
+            self.current = target
+            return target
+
+        # If only one non-default transition exists, fire it (unambiguous)
+        non_default = {k: v for k, v in trans.items() if k != '_default'}
+        if len(non_default) == 1:
+            label, target = next(iter(non_default.items()))
             self.history.append((self.current, target, trigger))
             self.current = target
             return target
@@ -115,15 +124,22 @@ class StateMachine:
             return False, None
 
         trigger_lower = trigger.lower()
-        for label, target in self.transitions[self.current].items():
+        trans = self.transitions[self.current]
+
+        for label, target in trans.items():
             if label == '_default':
                 continue
             words = label.replace('_', ' ')
             if words in trigger_lower:
                 return True, target
 
-        if '_default' in self.transitions[self.current]:
-            return True, self.transitions[self.current]['_default']
+        if '_default' in trans:
+            return True, trans['_default']
+
+        # Unambiguous single path
+        non_default = {k: v for k, v in trans.items() if k != '_default'}
+        if len(non_default) == 1:
+            return True, next(iter(non_default.values()))
 
         return False, None
 
