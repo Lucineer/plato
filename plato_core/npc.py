@@ -15,6 +15,7 @@ from plato_core.statemachine import StateMachine
 from plato_core.assertions import AssertionEngine, Severity
 from plato_core.jit_context import JITContext
 from plato_core.episodes import EpisodeRecorder
+from plato_core.word_anchors import WordAnchors
 
 
 class NPCLayer:
@@ -43,6 +44,8 @@ class NPCLayer:
         self._jit_metrics: list = []  # Track JIT performance over time
         # Semantic Muscle Memory: episode recorder
         self.episodes = EpisodeRecorder(self.config.get("data_dir", "data") + "/episodes")
+        # Word Anchors: self-referencing knowledge graph
+        self.anchors = WordAnchors(self.config.get("data_dir", "data") + "/anchors")
 
     def load_room_runtime(self, room_id: str, state_diagram: str = "",
                               assertions_md: str = "") -> dict:
@@ -223,6 +226,9 @@ class NPCLayer:
                 self.tile_store.add(new_tile)
                 self.stats["new_tiles"] += 1
                 self.audit.new_tile(room_id, new_tile.tile_id, "mid-tier")
+
+                # Discover word anchors in new tile
+                self.anchors.discover_anchors(room_id, [new_tile])
                 conv.append(("npc", synthesis))
 
                 # Plato-First Runtime: assertion check on gear 2 responses
@@ -371,6 +377,15 @@ class NPCLayer:
         episode_context = self.episodes.recall_context(room_id, query, limit=3)
         if episode_context:
             self.audit._append(room_id, f"EPISODE RECALL: {len(episode_context.splitlines())} lines")
+
+        # Word Anchors: expand any anchor references in query + tiles
+        anchor_tiles = self.anchors.expand_context(
+            query + " " + " ".join(getattr(t, 'answer', '') or '' for t in tiles),
+            tile_store=self.tile_store, room_id=room_id, max_extra=3
+        )
+        if anchor_tiles:
+            tiles = tiles + anchor_tiles  # Append anchor-resolved tiles
+            self.audit._append(room_id, f"WORD ANCHORS: {len(anchor_tiles)} extra tiles from anchors")
 
         # Build JIT system prompt
         system, metrics = self.jit.build_system_prompt(

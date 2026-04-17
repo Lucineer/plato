@@ -251,6 +251,7 @@ class PlatoSession:
         await self.send("  \033[1mstate\033[0m            Show state machine (if active)")
         await self.send("  \033[1massertions\033[0m       Show assertions (if active)")
         await self.send("  \033[1mepisodes\033[0m         Show episode memory (muscle memory)")
+        await self.send("  \033[1manchors\033[0m          Show word anchors (knowledge graph)")
         await self.send("  \033[1mexport\033[0m           Export tiles for LoRA training")
         await self.send("  \033[1mquit\033[0m             Leave PLATO")
 
@@ -314,6 +315,17 @@ class PlatoSession:
         if stats['decayed'] > 0:
             await self.send(f"  ⏰ {stats['decayed']} episodes decayed below threshold")
 
+    async def show_room_anchors(self):
+        """Show word anchors for current room."""
+        stats = self.npc.anchors.room_stats(self.current_room)
+        if stats['total'] == 0:
+            await self.send("No word anchors discovered yet. Use [AnchorName] in tile content to create them.")
+            return
+        await self.send(f"\033[1;36m🔗 Word Anchors: {self.current_room}\033[0m")
+        await self.send(f"  Total: {stats['total']} | Most used: {stats['most_used']} times")
+        if stats['names']:
+            await self.send(f"  Anchors: {', '.join(stats['names'][:20])}")
+
     async def handle_command(self, line: str):
         """Parse and execute a command."""
         if not line:
@@ -350,6 +362,8 @@ class PlatoSession:
             await self.show_room_assertions()
         elif cmd in ("episodes", "!episodes"):
             await self.show_room_episodes()
+        elif cmd in ("anchors", "!anchors"):
+            await self.show_room_anchors()
         elif cmd == "who":
             await self.send(f"Visitors online: {self.visitor['visitor_name']}")
         elif cmd == "export":
