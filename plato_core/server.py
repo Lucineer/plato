@@ -238,22 +238,48 @@ class PlatoSession:
 
     async def help(self):
         """Show available commands."""
-        await self.send("\033[1;36mPLATO Commands:\033[0m")
-        await self.send("  \033[1mlook\033[0m              Show current room")
-        await self.send("  \033[1m<direction>\033[0m        Move (north, south, east, west, up, down)")
-        await self.send("  \033[1mask <question>\033[0m   Ask the room's NPC")
-        await self.send("  \033[1msay <message>\033[0m   Say something in the room")
-        await self.send("  \033[1madd Q: ... A: ...\033[0m  Add a knowledge tile")
-        await self.send("  \033[1mtiles\033[0m            List tiles in this room")
-        await self.send("  \033[1mstats\033[0m            Show room and NPC stats")
-        await self.send("  \033[1mwho\033[0m              Show visitors online")
-        await self.send("  \033[1mmap\033[0m              Show room connections")
-        await self.send("  \033[1mstate\033[0m            Show state machine (if active)")
-        await self.send("  \033[1massertions\033[0m       Show assertions (if active)")
-        await self.send("  \033[1mepisodes\033[0m         Show episode memory (muscle memory)")
-        await self.send("  \033[1manchors\033[0m          Show word anchors (knowledge graph)")
-        await self.send("  \033[1mexport\033[0m           Export tiles for LoRA training")
-        await self.send("  \033[1mquit\033[0m             Leave PLATO")
+        await self.send("")
+        await self.send("\033[1;36m╔═══════════════════════════════════════════════════╗")
+        await self.send("\033[1;36m║              P L A T O   v0.3.0                   ║")
+        await self.send("\033[1;36m║        Git-Agent Maintenance Mode                  ║")
+        await self.send("\033[1;36m╠═══════════════════════════════════════════════════╣")
+        await self.send("\033[1;36m║  NAVIGATION                                      ║")
+        await self.send("\033[1;36m║  look              Show current room               ║")
+        await self.send("\033[1;36m║  <direction>        Move (n/s/e/w/u/d)               ║")
+        await self.send("\033[1;36m║  map               Show all rooms and exits        ║")
+        await self.send("\033[1;36m║  who               Show who's online               ║")
+        await self.send("\033[1;36m╠═══════════════════════════════════════════════════╣")
+        await self.send("\033[1;36m║  TALKING TO NPCs                                  ║")
+        await self.send("\033[1;36m║  ask <question>     Ask the room's NPC              ║")
+        await self.send("\033[1;36m║  <anything else>   Treated as a question           ║")
+        await self.send("\033[1;36m║  say <message>      Chat in the room               ║")
+        await self.send("\033[1;36m║  retry             Re-ask your last question       ║")
+        await self.send("\033[1;36m║  history           Show conversation history       ║")
+        await self.send("\033[1;36m║  clear             Clear conversation history       ║")
+        await self.send("\033[1;36m╠═══════════════════════════════════════════════════╣")
+        await self.send("\033[1;36m║  KNOWLEDGE                                       ║")
+        await self.send("\033[1;36m║  add Q:... A:...    Add a knowledge tile            ║")
+        await self.send("\033[1;36m║  teach <answer>    Quick-teach (links to last Q)   ║")
+        await self.send("\033[1;36m║  tiles             List tiles in this room          ║")
+        await self.send("\033[1;36m║  search <keyword>  Search tiles by keyword          ║")
+        await self.send("\033[1;36m║  export            Export tiles for LoRA training  ║")
+        await self.send("\033[1;36m╠═══════════════════════════════════════════════════╣")
+        await self.send("\033[1;36m║  ROOM INTELLIGENCE                               ║")
+        await self.send("\033[1;36m║  stats             Room and NPC statistics         ║")
+        await self.send("\033[1;36m║  health            Room health score + tips        ║")
+        await self.send("\033[1;36m║  clunks            Queries that stumped the room   ║")
+        await self.send("\033[1;36m║  audit             View audit trail               ║")
+        await self.send("\033[1;36m║  state             State machine status            ║")
+        await self.send("\033[1;36m║  assertions        Assertion guardrails            ║")
+        await self.send("\033[1;36m║  episodes          Muscle memory (learned)         ║")
+        await self.send("\033[1;36m║  anchors           Word anchor knowledge graph     ║")
+        await self.send("\033[1;36m╠═══════════════════════════════════════════════════╣")
+        await self.send("\033[1;36m║  quit              Leave PLATO                    ║")
+        await self.send("\033[1;36m╚═══════════════════════════════════════════════════╝")
+        await self.send("")
+        await self.send("\033[2mTip: Type any question directly to talk to the NPC.\033[0m")
+        await self.send("\033[2mTip: Use [WordAnchors] in tile content for cross-referencing.\033[0m")
+        await self.send("\033[2mTip: 'health' shows what your room needs to improve.\033[0m")
 
     async def list_tiles(self):
         """List tiles in current room."""
@@ -326,6 +352,153 @@ class PlatoSession:
         if stats['names']:
             await self.send(f"  Anchors: {', '.join(stats['names'][:20])}")
 
+    # ── NEW COMMANDS ──
+
+    async def show_audit(self, lines: int = 30):
+        """Show recent audit trail for current room."""
+        trail = self.npc.audit.read(self.current_room, lines)
+        if not trail.strip():
+            await self.send("No audit trail yet for this room.")
+            return
+        await self.send(f"\033[1;36m📜 Audit Trail: {self.current_room} (last {lines} events)\033[0m")
+        for entry in trail.strip().split("\n"):
+            await self.send(f"  {entry[:120]}")
+
+    async def show_history(self):
+        """Show conversation history for current session."""
+        conv = self.npc._conversations.get(self.visitor["visitor_id"], [])
+        if not conv:
+            await self.send("No conversation history yet.")
+            return
+        await self.send(f"\033[1;36m💬 Conversation History ({len(conv)} exchanges)\033[0m")
+        for role, content in conv[-15:]:
+            icon = "👤" if role == "user" else "🤖"
+            await self.send(f"  {icon} {content[:100]}{'...' if len(content) > 100 else ''}")
+
+    async def retry_last(self):
+        """Retry the last question (useful after tile improvements)."""
+        conv = self.npc._conversations.get(self.visitor["visitor_id"], [])
+        # Find last user message
+        for role, content in reversed(conv):
+            if role == "user":
+                await self.send(f"\033[2mRetrying: {content[:80]}...\033[0m")
+                await self.ask(content)
+                return
+        await self.send("No previous question to retry.")
+
+    async def teach_tile(self, text: str):
+        """Quick-add a tile with just an answer (question inferred from context)."""
+        if not text:
+            await self.send("Format: teach <answer text>")
+            await self.send("Example: teach The main entrance is on the north side of the building.")
+            return
+        # Find last query to use as question context
+        conv = self.npc._conversations.get(self.visitor["visitor_id"], [])
+        last_query = ""
+        for role, content in reversed(conv):
+            if role == "user":
+                last_query = content
+                break
+        question = f"Context: {last_query}" if last_query else "Taught knowledge"
+        tile = Tile(
+            room_id=self.current_room,
+            question=question,
+            answer=text,
+            source=f"taught:{self.visitor['visitor_name']}",
+            context=f"Taught by {self.visitor['visitor_name']} during session"
+        )
+        tile_id = self.tile_store.add(tile)
+        # Discover anchors in new tile
+        self.npc.anchors.discover_anchors(self.current_room, [tile])
+        await self.send(f"\033[1;32m✅ Tile taught [{tile_id}]\033[0m")
+        await self.send(f"   {text[:120]}{'...' if len(text) > 120 else ''}")
+        await self.send(f"\033[2m(Linked to last question: {last_query[:60]}...)\033[0m")
+
+    async def search_tiles(self, query: str):
+        """Search tiles by keyword."""
+        if not query:
+            await self.send("Format: search <keyword>")
+            return
+        results = self.tile_store.search(self.current_room, query, limit=10)
+        if not results:
+            await self.send(f"No tiles matching '{query}' in this room.")
+            return
+        await self.send(f"\033[1;36m🔍 Search results for '{query}' ({len(results)} found):\033[0m")
+        for t in results:
+            score_emoji = "🟢" if t.score >= 0.8 else "🟡" if t.score >= 0.5 else "🔴"
+            await self.send(f"  {score_emoji} [{t.tile_id[:8]}] {t.question[:50]}... ({t.score:.2f})")
+
+    async def show_health(self):
+        """Show system health overview."""
+        room_stats = self.tile_store.room_stats(self.current_room)
+        npc_stats = self.npc.get_stats()
+        episode_stats = self.npc.episodes.room_stats(self.current_room)
+        anchor_stats = self.npc.anchors.room_stats(self.current_room)
+        sm = self.npc._state_machines.get(self.current_room)
+        ae = self.npc._assertion_engines.get(self.current_room)
+
+        # Room health score
+        total_q = npc_stats['total_queries'] or 1
+        health = 100
+        # Penalize high escalation rate
+        health -= int(npc_stats['escalation_rate'] * 50)
+        # Penalize low tile count
+        if room_stats['total_tiles'] < 3:
+            health -= 20
+        # Penalize negative feedback ratio
+        fb_total = room_stats['total_feedback_positive'] + room_stats['total_feedback_negative']
+        if fb_total > 0:
+            neg_rate = room_stats['total_feedback_negative'] / fb_total
+            health -= int(neg_rate * 30)
+        health = max(0, min(100, health))
+
+        health_emoji = "🟢" if health >= 80 else "🟡" if health >= 50 else "🔴"
+        await self.send(f"\033[1;36m🏥 PLATO Health: {self.current_room}\033[0m")
+        await self.send(f"  Overall: {health_emoji} {health}/100")
+        await self.send(f"  ─────────────────────────")
+        await self.send(f"  📚 Tiles: {room_stats['total_tiles']} (🟢 {room_stats['total_feedback_positive']}👍 / 🔴 {room_stats['total_feedback_negative']}👎)")
+        await self.send(f"  🤖 NPC: {npc_stats['total_queries']} queries ({npc_stats['tiny_rate']:.0%} direct, {npc_stats['mid_rate']:.0%} synthesized)")
+        await self.send(f"  🧠 Episodes: {episode_stats['total']} ({episode_stats['positive']}✅ / {episode_stats['negative']}⚠️)")
+        await self.send(f"  🔗 Anchors: {anchor_stats['total']}")
+        await self.send(f"  📊 State machine: {'✅ active (' + sm.current + ')' if sm else '❌ none'}")
+        await self.send(f"  🛡️ Assertions: {len(ae.assertions) if ae else 0} ({ae.to_dict()['hard'] if ae else 0} hard)" )
+        await self.send(f"  ⚡ JIT: {npc_stats.get('jit', {})}")
+        # Recommendations
+        recs = []
+        if room_stats['total_tiles'] < 5:
+            recs.append("Add more tiles — room needs more knowledge")
+        if npc_stats['escalation_rate'] > 0.3:
+            recs.append("High escalation rate — add tiles for common questions")
+        if episode_stats['negative'] > episode_stats['positive'] and episode_stats['total'] > 3:
+            recs.append("More negative episodes — review and improve weak tiles")
+        if not sm:
+            recs.append("No state machine — add a Mermaid diagram to room config")
+        if not ae:
+            recs.append("No assertions — add safety rules to room config")
+        if health >= 80:
+            recs.append("Room is healthy! Consider adding [WordAnchors] for cross-referencing")
+        if recs:
+            await self.send(f"\n  \033[1;33m💡 Recommendations:\033[0m")
+            for r in recs:
+                await self.send(f"    • {r}")
+
+    async def show_clunks(self):
+        """Show clunk signals — queries that needed too many iterations."""
+        clunks = self.npc.stats.get("clunk_signals", [])
+        if not clunks:
+            await self.send("No clunk signals yet. The room is handling queries well.")
+            return
+        await self.send(f"\033[1;36m⚠️ Clunk Signals ({len(clunks)}):\033[0m")
+        await self.send(f"  These queries needed 3+ iterations — the room needs better tiles for them.")
+        for c in clunks[-10:]:
+            await self.send(f"  ⚠️ [{c.get('iterations', '?')} tries] {c.get('query', '?')[:70]}")
+        await self.send(f"\033[2mTip: Use 'add' to create tiles for these questions.\033[0m")
+
+    async def clear_conversation(self):
+        """Clear conversation history (start fresh with NPC)."""
+        self.npc.clear_conversation(self.visitor["visitor_id"])
+        await self.send("\033[1;33mConversation cleared. Starting fresh.\033[0m")
+
     async def handle_command(self, line: str):
         """Parse and execute a command."""
         if not line:
@@ -364,6 +537,23 @@ class PlatoSession:
             await self.show_room_episodes()
         elif cmd in ("anchors", "!anchors"):
             await self.show_room_anchors()
+        elif cmd in ("audit", "!audit"):
+            n = int(rest) if rest.isdigit() else 30
+            await self.show_audit(n)
+        elif cmd in ("history", "!history", "conv"):
+            await self.show_history()
+        elif cmd in ("retry", "!retry", "again"):
+            await self.retry_last()
+        elif cmd in ("teach", "!teach"):
+            await self.teach_tile(rest)
+        elif cmd == "search" and rest:
+            await self.search_tiles(rest)
+        elif cmd in ("health", "!health"):
+            await self.show_health()
+        elif cmd in ("clunks", "clunk", "!clunks"):
+            await self.show_clunks()
+        elif cmd in ("clear", "!clear", "reset"):
+            await self.clear_conversation()
         elif cmd == "who":
             await self.send(f"Visitors online: {self.visitor['visitor_name']}")
         elif cmd == "export":
