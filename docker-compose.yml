@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  plato:
+    build: .
+    ports:
+      - "4040:4040"   # Telnet
+      - "8080:8080"   # Web UI
+    volumes:
+      - plato-data:/app/data/tiles
+    environment:
+      - PLATO_MODEL_ENDPOINT=${PLATO_MODEL_ENDPOINT:-}
+      - PLATO_MODEL_KEY=${PLATO_MODEL_KEY:-}
+      - PLATO_MODEL_NAME=${PLATO_MODEL_NAME:-deepseek-chat}
+      - PLATO_TINY_MODEL=${PLATO_TINY_MODEL:-}
+      - PLATO_TELNET_PORT=4040
+      - PLATO_WEB_PORT=8080
+    restart: unless-stopped
+
+volumes:
+  plato-data:

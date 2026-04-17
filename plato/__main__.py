@@ -48,8 +48,11 @@ def main():
     parser = argparse.ArgumentParser(description="PLATO — Git-Agent Maintenance Mode")
     parser.add_argument("--setup", action="store_true", help="Interactive first-time setup")
     parser.add_argument("--web", action="store_true", help="Start with web UI")
+    parser.add_argument("--both", action="store_true", help="Start both telnet + web UI")
     parser.add_argument("--port", type=int, default=None, help="Telnet port")
+    parser.add_argument("--web-port", type=int, default=None, help="Web UI port")
     parser.add_argument("--host", default=None, help="Bind host")
+    parser.add_argument("--theme", default=None, help="Only load a specific theme")
     args = parser.parse_args()
 
     if args.setup:
@@ -60,8 +63,12 @@ def main():
     config = load_config()
     if args.port:
         config["telnet_port"] = args.port
+    if args.web_port:
+        config["web_port"] = args.web_port
     if args.host:
         config["host"] = args.host
+    if args.theme:
+        config["theme_filter"] = args.theme
 
     # Check if first run (no tiles, no visitors)
     if not os.path.exists(os.path.join(TILES_DIR, "_initialized")):
@@ -72,7 +79,14 @@ def main():
         with open(os.path.join(TILES_DIR, "_initialized"), "w") as f:
             f.write(str(__import__("time").time()))
 
-    if args.web:
+    if args.both:
+        import threading
+        from plato_core.web import run_web
+        from plato_core.server import run_server
+        web_thread = threading.Thread(target=run_web, args=(config,), daemon=True)
+        web_thread.start()
+        run_server(config)
+    elif args.web:
         from plato_core.web import run_web
         run_web(config)
     else:
