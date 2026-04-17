@@ -85,13 +85,13 @@ def main():
         from plato_core.server import run_server
         web_thread = threading.Thread(target=run_ide, args=(config,), daemon=True)
         web_thread.start()
-        run_server(config)
+        asyncio.run(run_server(config))
     elif args.web:
         from plato_core.ide import run_ide
         run_ide(config)
     else:
         from plato_core.server import run_server
-        run_server(config)
+        asyncio.run(run_server(config))
 
 if __name__ == "__main__":
     main()
