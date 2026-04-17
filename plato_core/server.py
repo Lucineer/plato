@@ -180,12 +180,14 @@ class PlatoSession:
                     tile = self.tile_store.get(self.current_room, result["tile_used"])
                     if tile:
                         tile.record_feedback(True)
+                self.npc.record_feedback(self.current_room, query, True)
                 await self.send("\033[2mThanks for the feedback! 🎉\033[0m")
             elif fb_lower in ("no", "n", "bad", "wrong", "unhelpful"):
                 if result.get("tile_used"):
                     tile = self.tile_store.get(self.current_room, result["tile_used"])
                     if tile:
                         tile.record_feedback(False)
+                self.npc.record_feedback(self.current_room, query, False)
                 await self.send("\033[2mNoted. A human can improve this tile later.\033[0m")
 
     async def add_tile(self, text: str):
@@ -248,6 +250,7 @@ class PlatoSession:
         await self.send("  \033[1mmap\033[0m              Show room connections")
         await self.send("  \033[1mstate\033[0m            Show state machine (if active)")
         await self.send("  \033[1massertions\033[0m       Show assertions (if active)")
+        await self.send("  \033[1mepisodes\033[0m         Show episode memory (muscle memory)")
         await self.send("  \033[1mexport\033[0m           Export tiles for LoRA training")
         await self.send("  \033[1mquit\033[0m             Leave PLATO")
 
@@ -299,6 +302,18 @@ class PlatoSession:
             v = f" ({a['violations']} violations)" if a['violations'] > 0 else ""
             await self.send(f"  {icon} [{a['severity'].upper()}] {a['text'][:60]}{v}")
 
+    async def show_room_episodes(self):
+        """Show episode memory for current room."""
+        stats = self.npc.episodes.room_stats(self.current_room)
+        if stats['total'] == 0:
+            await self.send("No episodes recorded yet. Ask questions to build memory!")
+            return
+        await self.send(f"\033[1;36m🧠 Episodes: {self.current_room}\033[0m")
+        await self.send(f"  Total: {stats['total']} (✅ {stats['positive']} positive, ⚠️ {stats['negative']} negative)")
+        await self.send(f"  Avg strength: {stats['avg_strength']} | Avg use: {stats['avg_use_count']}")
+        if stats['decayed'] > 0:
+            await self.send(f"  ⏰ {stats['decayed']} episodes decayed below threshold")
+
     async def handle_command(self, line: str):
         """Parse and execute a command."""
         if not line:
@@ -333,6 +348,8 @@ class PlatoSession:
             await self.show_room_state()
         elif cmd in ("assertions", "!assertions"):
             await self.show_room_assertions()
+        elif cmd in ("episodes", "!episodes"):
+            await self.show_room_episodes()
         elif cmd == "who":
             await self.send(f"Visitors online: {self.visitor['visitor_name']}")
         elif cmd == "export":

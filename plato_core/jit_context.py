@@ -252,6 +252,7 @@ class JITContext:
         system = f"""{t1}
 
 {t2}
+{episode_context}
 
 A visitor asked: {query}
 This is their {ordinal} attempt.

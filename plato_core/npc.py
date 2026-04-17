@@ -14,6 +14,7 @@ from plato_core.audit import AuditLog
 from plato_core.statemachine import StateMachine
 from plato_core.assertions import AssertionEngine, Severity
 from plato_core.jit_context import JITContext
+from plato_core.episodes import EpisodeRecorder
 
 
 class NPCLayer:
@@ -40,6 +41,8 @@ class NPCLayer:
             max_tiles=self.config.get("jit_max_tiles", 5)
         )
         self._jit_metrics: list = []  # Track JIT performance over time
+        # Semantic Muscle Memory: episode recorder
+        self.episodes = EpisodeRecorder(self.config.get("data_dir", "data") + "/episodes")
 
     def load_room_runtime(self, room_id: str, state_diagram: str = "",
                               assertions_md: str = "") -> dict:
@@ -171,6 +174,10 @@ class NPCLayer:
             response = self._format_tile_response(best_tile, npc_personality, query)
             conv.append(("npc", response))
 
+            # Record episode for gear 1
+            self.episodes.record(room_id, query, response, "neutral", "tiny",
+                iteration, [best_tile.tile_id], tags=self._extract_tags(query))
+
             # Plato-First Runtime: assertion check on gear 1 responses
             response = self._apply_assertions(room_id, response, {"confidence": best_tile.score})
 
@@ -242,6 +249,11 @@ class NPCLayer:
                     # Keep last 100
                     self.stats["clunk_signals"] = self.stats["clunk_signals"][-100:]
 
+                # Record episode (outcome unknown until feedback)
+                self.episodes.record(room_id, query, synthesis, "neutral", "mid",
+                    iteration, [t.tile_id for t in related_tiles[:3]],
+                    tags=self._extract_tags(query))
+
                 return {
                     "response": synthesis,
                     "tier": "mid",
@@ -255,6 +267,9 @@ class NPCLayer:
         self.stats["human_escapes"] += 1
         escalation = self._format_escalation(room_id, query, related_tiles, npc_personality, iteration)
         conv.append(("npc", escalation))
+
+        self.episodes.record(room_id, query, escalation, "neutral", "human",
+                            iteration, tags=self._extract_tags(query))
 
         return {
             "response": escalation,
@@ -352,6 +367,11 @@ class NPCLayer:
         sm = self._state_machines.get(room_id)
         state_current = sm.current if sm else ""
 
+        # Semantic Muscle Memory: recall relevant past episodes
+        episode_context = self.episodes.recall_context(room_id, query, limit=3)
+        if episode_context:
+            self.audit._append(room_id, f"EPISODE RECALL: {len(episode_context.splitlines())} lines")
+
         # Build JIT system prompt
         system, metrics = self.jit.build_system_prompt(
             query=query,
@@ -364,7 +384,8 @@ class NPCLayer:
             state_current=state_current,
             theme=room_info.get('theme', ''),
             conversation_context=conversation_context,
-            iteration=iteration
+            iteration=iteration,
+            episode_context=episode_context
         )
 
         # Track JIT metrics
@@ -455,6 +476,23 @@ class NPCLayer:
     def clear_conversation(self, visitor_id: str):
         """Clear a visitor's conversation history."""
         self._conversations.pop(visitor_id, None)
+
+    def record_feedback(self, room_id: str, query: str, positive: bool):
+        """Record visitor feedback — updates the most recent matching episode."""
+        episodes = self.episodes._load_room(room_id)
+        query_words = set(w.lower() for w in re.findall(r'\w+', query) if len(w) > 2)
+        for ep in reversed(episodes):  # Most recent first
+            ep_words = set(w.lower() for w in re.findall(r'\w+', ep.query_pattern) if len(w) > 2)
+            if query_words & ep_words:  # Any overlap
+                ep.outcome = "positive" if positive else "negative"
+                if positive:
+                    ep.strength = min(2.0, ep.strength + 0.3)
+                else:
+                    ep.strength = max(0.0, ep.strength - 0.4)
+                self.episodes._save_room(room_id)
+                self.audit._append(room_id,
+                    f"EPISODE FEEDBACK: {'positive' if positive else 'negative'} for {ep.episode_id}")
+                return
 
     def _jit_stats(self) -> dict:
         """Aggregate JIT Context performance metrics."""
