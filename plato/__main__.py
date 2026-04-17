@@ -11,7 +11,7 @@ Usage:
 
 import sys, os, argparse, json, signal, asyncio
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 PLATO_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PLATO_HOME, "data")
 TILES_DIR = os.path.join(DATA_DIR, "tiles")
@@ -70,12 +70,10 @@ def main():
     if args.theme:
         config["theme_filter"] = args.theme
 
-    # Check if first run (no tiles, no visitors)
+    # Ensure data dirs exist
     if not os.path.exists(os.path.join(TILES_DIR, "_initialized")):
         print("PLATO v" + __version__)
-        print("No PLATO found. Run 'python -m plato --setup' to initialize.")
-        print("Or connect via telnet for interactive onboarding.")
-        # Create init marker
+        print("First run — data directories created.")
         with open(os.path.join(TILES_DIR, "_initialized"), "w") as f:
             f.write(str(__import__("time").time()))
 
