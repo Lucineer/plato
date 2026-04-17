@@ -10,6 +10,7 @@ The scripts keep running without an agent. The agent makes them better.
 import json, os, time, urllib.request, urllib.error, re
 from typing import Optional, Tuple
 from plato_core.tiles import Tile, TileStore
+from plato_core.audit import AuditLog
 
 
 class NPCLayer:
@@ -21,6 +22,7 @@ class NPCLayer:
         self.model_endpoint = self.config.get("model_endpoint", "")
         self.model_key = self.config.get("model_key", "")
         self.model_name = self.config.get("model_name", "deepseek-chat")
+        self.audit = AuditLog(self.config.get("data_dir", "data") + "/audit")
         self.stats = {"tiny_hits": 0, "mid_hits": 0, "human_escapes": 0,
                       "new_tiles": 0, "total_queries": 0, "iterations": 0,
                       "clunk_signals": []}
@@ -102,6 +104,8 @@ class NPCLayer:
 
         if best_tile:
             self.stats["tiny_hits"] += 1
+            self.audit.query(room_id, visitor_id, query, iteration)
+            self.audit.tile_match(room_id, best_tile.tile_id, best_tile.score, "tiny")
             response = self._format_tile_response(best_tile, npc_personality, query)
             conv.append(("npc", response))
             return {
@@ -117,6 +121,9 @@ class NPCLayer:
         related_tiles = self.tile_store.search(room_id, query, limit=5)
 
         if self.model_endpoint and (related_tiles or iteration >= 2):
+            self.audit.query(room_id, visitor_id, query, iteration)
+            if not related_tiles:
+                self.audit.no_match(room_id, query)
             synthesis = self._synthesize(room_id, query, related_tiles, npc_personality,
                                          conversation_context=conv, iteration=iteration)
 
@@ -134,10 +141,12 @@ class NPCLayer:
                 )
                 self.tile_store.add(new_tile)
                 self.stats["new_tiles"] += 1
+                self.audit.new_tile(room_id, new_tile.tile_id, "mid-tier")
                 conv.append(("npc", synthesis))
 
                 # Log clunk signal if this took multiple iterations
                 if iteration >= 3:
+                    self.audit.clunk_signal(room_id, query, iteration)
                     self.stats["clunk_signals"].append({
                         "room": room_id,
                         "query": query,
