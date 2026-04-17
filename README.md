@@ -462,8 +462,9 @@ plato/
 
 - [x] **v0.1** — Telnet MUD, room templates, tile system, NPC
 - [x] **v0.2** — Web IDE, Codespaces, 14 READMEs, room editor
-- [x] **v0.3** — Two-gear NPC, WebSocket, clunk signals, conversation iteration tracking
-- [ ] **v0.4** — Embedded PLATO (`<iframe>` widget), tile marketplace
+- [x] **v0.3** — Two-gear NPC, WebSocket, clunk signals, conversation iteration tracking, fleet onboarding
+- [ ] **v0.4** — Embedded PLATO (`<iframe>` widget), tile marketplace, room federation
+- [x] **Overnight** — 32 commits across 11 repos, experience distributed to 7 repos, paper v2, fleet status
 - [ ] **v0.5** — PLATO-to-PLATO federation, agents visit each other's rooms
 - [ ] **v0.6** — Tiny model inference (phi-4, Qwen3-32B on-device)
 - [ ] **v0.7** — PLATO Studio (visual room builder, no YAML needed)
