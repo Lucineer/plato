@@ -9,7 +9,7 @@ Three tiers:
 
 import json, os, time, urllib.request, urllib.error
 from typing import Optional, Tuple
-from .tiles import Tile, TileStore
+from plato_core.tiles import Tile, TileStore
 
 
 class NPCLayer:

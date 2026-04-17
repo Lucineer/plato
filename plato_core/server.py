@@ -5,10 +5,10 @@ Connect via: telnet localhost 4040
 """
 
 import asyncio, sys, os, time, json
-from .rooms import RoomManager
-from .tiles import Tile, TileStore
-from .npc import NPCLayer
-from .onboard import onboard_questions, process_onboarding, detect_persona, PERSONAS
+from plato_core.rooms import RoomManager
+from plato_core.tiles import Tile, TileStore
+from plato_core.npc import NPCLayer
+from plato_core.onboard import onboard_questions, process_onboarding, detect_persona, PERSONAS
 
 
 class PlatoSession:

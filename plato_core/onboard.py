@@ -7,7 +7,7 @@ starting room for their use case.
 
 import json, os
 from typing import Optional, Tuple
-from .rooms import RoomManager
+from plato_core.rooms import RoomManager
 
 
 PERSONAS = {
