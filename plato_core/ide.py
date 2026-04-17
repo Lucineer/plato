@@ -1,13 +1,15 @@
 """
-PLATO Web IDE — The main browser interface.
+PLATO Web IDE v2 — HTTP + WebSocket.
 
-This is not a chat app. This is an IDE for building PLATO rooms,
-managing tiles, and collaborating with AI agents in real-time.
+The main browser interface. Split panels, room editor, tile manager,
+workspace export, live WebSocket for real-time multi-visitor interaction.
 
-Run: python3 -m plato --web --port 8080
+Run: python3 -m plato --both
+  → Telnet on :4040 (for Claude Code / aider / OpenClaw)
+  → Web IDE on :8080 (for humans, with WebSocket)
 """
 
-import json, os, time, asyncio, subprocess, threading, signal
+import json, os, time, asyncio, subprocess, threading, signal, hashlib
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from plato_core.rooms import RoomManager
@@ -28,7 +30,19 @@ class PlatoIDE:
         self.sessions = {}
         self._seed_tiles()
         self._activity_log = []
-        self._telnet_log = []
+        self._event_hooks = []  # callbacks for ws broadcast
+
+    def add_event_hook(self, hook):
+        """Add a callback for events (used by WebSocket layer)."""
+        self._event_hooks.append(hook)
+
+    def emit_event(self, room_id: str, event: dict):
+        """Emit an event to all WebSocket clients in a room."""
+        for hook in self._event_hooks:
+            try:
+                hook(room_id, event)
+            except:
+                pass
 
     def _seed_tiles(self):
         for room_id, room in self.room_manager.all_rooms().items():
@@ -49,6 +63,7 @@ class PlatoIDE:
         self._activity_log.append(entry)
         if len(self._activity_log) > 500:
             self._activity_log = self._activity_log[-500:]
+        self.emit_event("_system", entry)
 
     def _new_session(self, session_id: str):
         self.sessions[session_id] = {
@@ -69,11 +84,11 @@ class PlatoIDE:
             rooms = self.room_manager.all_rooms()
             total_tiles = sum(self.tile_store.room_stats(rid)["total_tiles"] for rid in rooms)
             return {"status": "ok", "data": {
-                "version": "0.2.0",
+                "version": "0.3.0",
                 "rooms": len(rooms),
                 "themes": self.room_manager.themes(),
                 "total_tiles": total_tiles,
-                "model": self.config.get("model_name", "tile-only"),
+                "model": self.config.get("model_endpoint", "tile-only"),
                 "active_sessions": len(self.sessions),
                 "uptime": time.time()
             }}
@@ -130,7 +145,6 @@ class PlatoIDE:
             room_id = query.get("room_id", [""])[0]
             if not room_id:
                 return {"status": "error", "error": "room_id required"}
-            # Find the source YAML file
             for theme_dir in [d for d in os.listdir(self.config.get("rooms_dir", "templates")) if os.path.isdir(os.path.join(self.config.get("rooms_dir", "templates"), d))]:
                 yaml_path = os.path.join(self.config.get("rooms_dir", "templates"), theme_dir, "rooms.yaml")
                 if os.path.exists(yaml_path):
@@ -142,7 +156,6 @@ class PlatoIDE:
             return {"status": "ok", "data": {"room_id": room_id, "yaml": None, "file": None, "theme": None}}
 
         elif path == "/api/rooms/create" and method == "POST":
-            # Create a new room
             room_data = body
             room_id = room_data.get("room_id", f"custom_{os.urandom(4).hex()}")
             theme = room_data.get("theme", "custom")
@@ -241,6 +254,9 @@ class PlatoIDE:
             personality = room.npc.personality if room and room.npc else ""
             result = self.npc.handle_query(room_id, visitor_id, question, personality)
             self._log("ask", f"{visitor_id} in {room_id}: {question[:60]}")
+            # Emit event for WebSocket clients
+            if result.get("new_tile_created"):
+                self.emit_event(room_id, {"type": "tile_created", "question": question[:60]})
             return {"status": "ok", "data": result}
 
         # ── Tiles ──
@@ -274,6 +290,7 @@ class PlatoIDE:
                        source=visitor_id, tags=tags, context="Added via PLATO IDE")
             tile_id = self.tile_store.add(tile)
             self._log("tile_added", f"{tile_id}: {question[:40]}")
+            self.emit_event(target_room, {"type": "tile_added", "tile_id": tile_id, "question": question[:60]})
             return {"status": "ok", "data": {"tile_id": tile_id}}
 
         elif path == "/api/tiles/delete" and method == "POST":
@@ -285,7 +302,6 @@ class PlatoIDE:
             new_tiles = [t for t in tiles if t.tile_id != tile_id]
             if len(new_tiles) == len(tiles):
                 return {"status": "error", "error": "Tile not found"}
-            # Rewrite the room file
             import yaml
             path = os.path.join(self.tile_store.tiles_dir, f"{room_id}.json")
             with open(path, "w") as f:
@@ -329,6 +345,11 @@ class PlatoIDE:
             all_stats = {rid: self.tile_store.room_stats(rid) for rid in self.room_manager.all_rooms()}
             return {"status": "ok", "data": {"rooms": all_stats, "npc": self.npc.get_stats()}}
 
+        # ── Clunk Report ──
+        elif path == "/api/clunks" and method == "GET":
+            clunks = self.npc.get_clunk_report()
+            return {"status": "ok", "data": clunks}
+
         # ── Export ──
         elif path == "/api/export" and method == "GET":
             room_id = query.get("room_id", [None])[0]
@@ -337,17 +358,14 @@ class PlatoIDE:
             return {"status": "ok", "data": {"count": len(entries), "format": fmt, "entries": entries[:100]}}
 
         elif path == "/api/workspace/download" and method == "GET":
-            """Export entire workspace as downloadable zip."""
-            import zipfile, io, shutil
+            import zipfile, io
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                # Tile data
                 tiles_dir = self.tile_store.tiles_dir
                 if os.path.exists(tiles_dir):
                     for f in os.listdir(tiles_dir):
                         if f.endswith('.json'):
                             zf.write(os.path.join(tiles_dir, f), f"data/tiles/{f}")
-                # Room templates
                 rooms_dir = self.config.get("rooms_dir", "templates")
                 if os.path.exists(rooms_dir):
                     for root, dirs, files in os.walk(rooms_dir):
@@ -355,64 +373,39 @@ class PlatoIDE:
                             full = os.path.join(root, f)
                             arc = os.path.join("templates", os.path.relpath(full, rooms_dir))
                             zf.write(full, arc)
-                # Activity log
                 zf.writestr("data/activity.json", json.dumps(self._activity_log, indent=2, default=str))
-                # Export config
                 export_config = {
-                    "version": "0.2.0",
-                    "exported": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "version": "0.3.0", "exported": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "total_tiles": sum(self.tile_store.room_stats(rid)["total_tiles"] for rid in self.room_manager.all_rooms()),
-                    "rooms": len(self.room_manager.all_rooms()),
-                    "themes": self.room_manager.themes()
+                    "rooms": len(self.room_manager.all_rooms()), "themes": self.room_manager.themes()
                 }
                 zf.writestr("data/export.json", json.dumps(export_config, indent=2))
-
             buf.seek(0)
             return {"status": "ok", "data": {"type": "zip", "size": len(buf.getvalue())}, "_zip_buffer": buf}
 
-        elif path == "/api/workspace/upload" and method == "POST":
-            """Import tiles from uploaded workspace."""
-            # Handled in do_POST with multipart
-            return {"status": "error", "error": "Use multipart upload"}
-
         elif path == "/api/workspace/merge-ready" and method == "GET":
-            """Get tiles ready for global merge."""
             entries = self.tile_store.export_for_lora()
-            export_config = {
-                "version": "0.2.0",
-                "source": "plato-workspace-export",
-                "exported": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "count": len(entries),
-                "rooms": list(set(t.get("room_id", "unknown") for t in entries))
-            }
-            return {"status": "ok", "data": {"config": export_config, "count": len(entries), "entries": entries, "download_url": "/api/workspace/merge-download"}}
+            return {"status": "ok", "data": {"version": "0.3.0", "count": len(entries), "entries": entries,
+                "rooms": list(set(t.get("room_id", "unknown") for t in entries)),
+                "download_url": "/api/workspace/merge-download"}}
 
         elif path == "/api/workspace/merge-download" and method == "GET":
             entries = self.tile_store.export_for_lora()
             import io
             buf = io.BytesIO()
-            buf.write(json.dumps({
-                "version": "0.2.0",
-                "format": "instruction-input-output",
-                "exported": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "count": len(entries),
-                "entries": entries
+            buf.write(json.dumps({"version": "0.3.0", "format": "instruction-input-output",
+                "exported": time.strftime("%Y-%m-%dT%H:%M:%SZ"), "count": len(entries), "entries": entries
             }, indent=2).encode())
             buf.seek(0)
             return {"status": "ok", "data": {"type": "json", "size": len(buf.getvalue())}, "_json_buffer": buf}
 
         elif path == "/api/agents/status" and method == "GET":
-            """Show which agents are connected (session activity)."""
             active = []
             for sid, sess in self.sessions.items():
                 age = time.time() - sess["created"]
-                if age < 3600:  # Active in last hour
-                    active.append({
-                        "visitor_id": sess["visitor_id"],
-                        "name": sess.get("visitor_name", "Unknown"),
-                        "room": sess["room"],
-                        "age_seconds": int(age)
-                    })
+                if age < 3600:
+                    active.append({"visitor_id": sess["visitor_id"], "name": sess.get("visitor_name", "Unknown"),
+                        "room": sess["room"], "age_seconds": int(age)})
             return {"status": "ok", "data": {"total": len(self.sessions), "active": active}}
 
         return {"status": "error", "error": f"Unknown: {method} {path}"}
@@ -433,7 +426,6 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-/* ── Layout ── */
 .app{display:grid;grid-template-rows:36px 1fr 24px;grid-template-columns:240px 1fr 320px;height:100vh}
 .topbar{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:12px;z-index:10}
 .topbar .logo{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:1px}
@@ -441,11 +433,15 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .topbar .room-name{color:var(--text);font-weight:600}
 .topbar .room-theme{color:var(--dim);font-size:11px;background:var(--bg);padding:1px 6px;border-radius:8px}
 .topbar .spacer{flex:1}
+.ws-status{display:flex;align-items:center;gap:6px;font-size:11px}
+.ws-status .dot{width:6px;height:6px;border-radius:50%;transition:background .3s}
+.ws-status .dot.on{background:var(--green)}
+.ws-status .dot.off{background:var(--red)}
+.ws-status .dot.connecting{background:var(--yellow);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.3}}
 .topbar .agents{color:var(--green);font-size:11px}
-.topbar .agents .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px}
 .bottombar{grid-column:1/-1;background:var(--surface);border-top:1px solid var(--border);padding:0 12px;display:flex;align-items:center;gap:16px;font-size:11px;color:var(--dim)}
 
-/* ── Sidebar ── */
 .sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column}
 .sidebar-header{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);border-bottom:1px solid var(--border)}
 .room-item{padding:6px 10px;cursor:pointer;border-left:2px solid transparent;transition:all .15s;display:flex;justify-content:space-between;align-items:center}
@@ -455,15 +451,15 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .room-item .count{font-size:10px;color:var(--dim);background:var(--bg);padding:0 5px;border-radius:8px}
 .theme-group{border-bottom:1px solid var(--border)}
 .theme-label{padding:4px 10px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+.visitors-here{padding:4px 10px;font-size:9px;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px}
+.visitors-here .vtag{background:rgba(80,250,123,.1);color:var(--green);padding:0 4px;border-radius:3px}
 
-/* ── Main Panel ── */
 .main{display:flex;flex-direction:column;overflow:hidden;position:relative}
 .main-header{padding:8px 12px;border-bottom:1px solid var(--border);background:var(--surface);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:8px}
 .main-header .tab{padding:3px 10px;border-radius:4px;cursor:pointer;color:var(--dim);transition:all .15s}
 .main-header .tab:hover{color:var(--text)}
 .main-header .tab.active{color:var(--accent);background:rgba(139,233,253,.1)}
 
-/* ── Chat ── */
 .chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
 .msg{max-width:88%;padding:8px 12px;border-radius:8px;font-size:12.5px;line-height:1.6;word-wrap:break-word}
 .msg-sys{background:var(--surface);border:1px solid var(--border);color:var(--accent);align-self:center;font-size:11px;padding:4px 12px;border-radius:20px}
@@ -471,6 +467,10 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .msg-npc .label{color:var(--orange);font-weight:700;font-size:10px;margin-bottom:2px}
 .msg-npc .tier{color:var(--dim);font-size:9px;margin-left:6px}
 .msg-user{background:#1a1a2a;border:1px solid #2a2a3a;align-self:flex-end;color:var(--text)}
+.msg-user .vis-name{color:var(--purple);font-size:10px;font-weight:600;margin-bottom:2px}
+.msg-other{background:#1a0a2a;border:1px solid #2a1a3a;align-self:flex-start;color:var(--text)}
+.msg-other .vis-name{color:var(--pink);font-size:10px;font-weight:600;margin-bottom:2px}
+.msg-arrive{background:transparent;color:var(--dim);align-self:center;font-size:10px;padding:2px 12px;border:1px dashed var(--border);border-radius:12px}
 .msg-cmd{background:#0a1a0a;border:1px solid #1a2a1a;align-self:flex-start;font-size:11px;color:var(--green);font-family:inherit;white-space:pre-wrap}
 .chat-input{padding:8px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--surface)}
 .chat-input input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-family:inherit;font-size:12px}
@@ -479,7 +479,6 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .chat-input .btn:hover{background:rgba(139,233,253,.2)}
 .chat-input .btn-send{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 
-/* ── Right Panel ── */
 .right{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
 .panel-tabs{display:flex;border-bottom:1px solid var(--border)}
 .panel-tabs .ptab{flex:1;padding:7px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
@@ -498,7 +497,6 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .btn-xs.pos:hover{border-color:var(--green);color:var(--green)}
 .btn-xs.neg:hover{border-color:var(--red);color:var(--red)}
 
-/* ── Onboarding ── */
 .onboard{display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg)}
 .onboard .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:460px;width:90%}
 .onboard h2{color:var(--accent);margin-bottom:4px;font-size:18px;letter-spacing:2px}
@@ -511,57 +509,57 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
 .btn-primary{width:100%;padding:10px;border:1px solid var(--accent);background:rgba(139,233,253,.12);color:var(--accent);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:1px;transition:all .15s}
 .btn-primary:hover{background:rgba(139,233,253,.22)}
 
-/* ── Room Editor ── */
 .editor{display:none;flex-direction:column;height:100%}
 .editor.active{display:flex}
 .editor textarea{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;font-family:inherit;font-size:11px;resize:none;line-height:1.6}
 .editor textarea:focus{outline:none;border-color:var(--accent)}
 .editor-bar{display:flex;gap:6px;padding:6px;border-top:1px solid var(--border);background:var(--surface)}
 
+.clunk-item{background:rgba(255,85,85,.05);border:1px solid rgba(255,85,85,.2);border-radius:6px;padding:6px;margin-bottom:4px;font-size:10px}
+.clunk-item .iters{color:var(--red);font-weight:700}
+.clunk-item .room{color:var(--dim)}
+
 .hidden{display:none!important}
 </style>
 </head>
 <body>
 
-<!-- Onboarding -->
 <div id="onboard" class="onboard">
 <div class="card">
 <h2>&#x26A1; PLATO</h2>
-<p class="sub">Git-Agent Maintenance Mode &mdash; v0.2.0</p>
+<p class="sub">Git-Agent Maintenance Mode &mdash; v0.3.0</p>
 <div id="ob-form">
   <div class="field"><label>Your name</label><input id="ob-name" placeholder="What should we call you?" autofocus></div>
   <div class="field"><label>What brings you here?</label><textarea id="ob-purpose" rows="2" placeholder="I'm building a... / I need help with..."></textarea><div class="hint">This places you in the right room</div></div>
   <div class="field"><label>Experience</label><input id="ob-exp" placeholder="First time / Experienced / Expert"></div>
-  <div class="field"><label>API endpoint <span style="color:var(--dim)">(optional)</span></label><input id="ob-model" placeholder="https://api.deepseek.com/v1/chat/completions"><div class="hint">Leave blank for tile-only mode. Claude Code / aider / OpenClaw can board via telnet on port 4040.</div></div>
+  <div class="field"><label>API endpoint <span style="color:var(--dim)">(optional)</span></label><input id="ob-model" placeholder="https://api.deepseek.com/v1/chat/completions"><div class="hint">Leave blank for tile-only mode. Claude Code / aider / OpenClaw board via telnet :4040.</div></div>
   <button class="btn-primary" onclick="submitOnboard()">Enter PLATO &rarr;</button>
 </div>
 </div>
 </div>
 
-<!-- IDE -->
 <div id="ide" class="app hidden">
-  <!-- Top Bar -->
   <div class="topbar">
     <span class="logo">&copy; PLATO</span>
     <span class="sep">/</span>
     <span class="room-name" id="top-room">Loading...</span>
     <span class="room-theme" id="top-theme"></span>
     <div class="spacer"></div>
+    <div class="ws-status"><div class="dot connecting" id="ws-dot"></div><span id="ws-label">connecting</span></div>
     <div class="agents" id="top-agents"></div>
     <button class="btn-xs" onclick="downloadWorkspace()" title="Download workspace">&darr; Export</button>
     <button class="btn-xs" onclick="window.open('/api/workspace/merge-ready','_blank')" title="Export for global merge">&#x2B06; Merge</button>
   </div>
 
-  <!-- Sidebar -->
   <div class="sidebar">
     <div class="sidebar-header">Rooms</div>
     <div id="room-list" style="flex:1;overflow-y:auto"></div>
+    <div class="visitors-here" id="sidebar-visitors"></div>
     <div style="padding:8px;border-top:1px solid var(--border)">
       <button class="btn-xs" style="width:100%;padding:5px" onclick="showNewRoom()">+ New Room</button>
     </div>
   </div>
 
-  <!-- Main -->
   <div class="main" id="main-panel">
     <div class="main-header">
       <span class="tab active" onclick="switchTab('chat',this)">Chat</span>
@@ -583,18 +581,18 @@ body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(
         <p style="margin-bottom:12px"><strong style="color:var(--text)">Boarding Instructions</strong></p>
         <p>PLATO runs a telnet server on <strong style="color:var(--accent)">port 4040</strong>.</p>
         <br>
-        <p>AI agents can board via telnet:</p>
-        <pre style="text-align:left;background:var(--bg);padding:10px;border-radius:6px;margin:8px 0;color:var(--green);font-size:11px">claude --print "Connect to PLATO on localhost:4040<br>and help me world-build rooms"
+        <p>AI agents board via telnet and collaborate in real-time:</p>
+        <pre style="text-align:left;background:var(--bg);padding:10px;border-radius:6px;margin:8px 0;color:var(--green);font-size:11px">claude --print "Connect to PLATO on localhost:4040
+and help me world-build rooms"
 
-aider --msg "Connect to PLATO at telnet localhost 4040<br>and add tiles to the current room"
-
-# OpenClaw connects natively via telnet</pre>
+aider --msg "Connect to PLATO at telnet localhost 4040
+and add tiles to the current room"</pre>
         <br>
-        <p>The agent sees the same room, the same tiles, the same NPC.</p>
+        <p>They see the same room, same tiles, same NPC.</p>
         <p>They can add tiles, create rooms, ask questions &mdash; alongside you.</p>
         <br>
-        <p style="color:var(--yellow)">Your experience is preserved whether or not we merge it globally.</p>
-        <button class="btn-xs" onclick="refreshAgents()" style="margin-top:8px">Refresh Agent Status</button>
+        <p style="color:var(--yellow)">When an agent is aboard, you see their messages here in real-time via WebSocket.</p>
+        <p style="color:var(--dim);margin-top:8px">Your experience is preserved whether or not we merge it globally.</p>
       </div>
     </div>
     <div class="chat-input">
@@ -604,34 +602,104 @@ aider --msg "Connect to PLATO at telnet localhost 4040<br>and add tiles to the c
     </div>
   </div>
 
-  <!-- Right Panel -->
   <div class="right">
     <div class="panel-tabs">
       <div class="ptab active" onclick="switchRight('tiles',this)">Tiles</div>
       <div class="ptab" onclick="switchRight('map',this)">Map</div>
       <div class="ptab" onclick="switchRight('stats',this)">Stats</div>
+      <div class="ptab" onclick="switchRight('clunks',this)">Clunks</div>
     </div>
     <div class="panel-content" id="tiles-panel"></div>
     <div class="panel-content hidden" id="map-panel"></div>
     <div class="panel-content hidden" id="stats-panel"></div>
+    <div class="panel-content hidden" id="clunks-panel"></div>
   </div>
 
-  <!-- Bottom Bar -->
   <div class="bottombar">
     <span id="status-rooms">0 rooms</span>
     <span id="status-tiles">0 tiles</span>
     <span id="status-model">tile-only</span>
     <div style="flex:1"></div>
-    <span>telnet :4040 &bull; web :8080</span>
+    <span>telnet :4040 &bull; web+ws :8080</span>
   </div>
 </div>
 
 <script>
-const A='';let sid=null,curRoom=null,lastActivity=0;
+const WS_URL=`ws://${location.host}/ws`;
+let ws=null,sid=null,curRoom=null,myName='Visitor',reconnectTimer=null;
 
 async function api(path,opts={}){
-  const r=await fetch(A+path,{headers:{'Content-Type':'application/json'},...opts});
+  const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
   return r.json();
+}
+
+function wsSend(data){if(ws&&ws.readyState===1)ws.send(JSON.stringify(data));}
+
+function connectWS(){
+  if(!sid)return;
+  try{ws=new WebSocket(WS_URL);}catch(e){return;}
+  ws.onopen=()=>{
+    $('ws-dot').className='dot on';$('ws-label').textContent='live';
+    wsSend({type:'auth',session_id:sid});
+  };
+  ws.onclose=()=>{
+    $('ws-dot').className='dot off';$('ws-label').textContent='offline';
+    clearTimeout(reconnectTimer);
+    reconnectTimer=setTimeout(connectWS,3000);
+  };
+  ws.onerror=()=>ws.close();
+  ws.onmessage=(e)=>{
+    try{const msg=JSON.parse(e.data);handleWS(msg);}catch(ex){}
+  };
+}
+
+function handleWS(msg){
+  switch(msg.type){
+    case 'connected':
+      updateVisitors(msg.visitors||[]);
+      break;
+    case 'visitor_arrived':
+      if(msg.visitor&&msg.visitor.visitor_id!==sid.slice(0,8)){
+        addMsg('msg-arrive',`&#x1F680; ${esc(msg.visitor.visitor_name)} joined the room`);
+      }
+      updateVisitors();
+      break;
+    case 'visitor_left':
+      if(msg.visitor_id!==sid.slice(0,8)){
+        addMsg('msg-arrive',`&#x1F680; ${esc(msg.visitor_name)} left the room`);
+      }
+      updateVisitors();
+      break;
+    case 'chat':
+      if(msg.visitor_id!==sid.slice(0,8)){
+        addMsg('msg-other',`<span class="vis-name">${esc(msg.visitor_name)}</span>${esc(msg.text)}`);
+      }
+      break;
+    case 'npc_response':
+      // NPC responses from other visitors are visible (overhearing)
+      if(msg.asker!==myName){
+        const tierBadge=msg.tier==='tiny'?'<span style="color:var(--green)">tile</span>':msg.tier==='mid'?'<span style="color:var(--yellow)">synth</span>':'<span style="color:var(--pink)">human</span>';
+        addMsg('msg-npc',`<span class="label">${esc(msg.npc_name)} <span class="tier">${tierBadge}</span></span><span style="color:var(--dim);font-size:10px">(${esc(msg.asker)} asked)</span><br>${esc(msg.response)}`);
+        if(msg.new_tile)sysMsg('New tile created from interaction');
+      }
+      break;
+    case 'tile_added':
+      sysMsg(`&#x1F4CC; ${esc(msg.added_by||'Someone')} added a tile: "${esc(msg.question)}..."`);
+      loadTiles();
+      break;
+    case 'tile_created':
+      sysMsg(`&#x2728; New tile created: "${esc(msg.question)}..."`);
+      loadTiles();
+      break;
+    case 'room_changed':
+      // If we moved
+      if(msg.visitors)updateVisitors(msg.visitors);
+      break;
+  }
+}
+
+function updateVisitors(list){
+  // Will be populated by periodic poll if WS not connected
 }
 
 async function submitOnboard(){
@@ -640,15 +708,18 @@ async function submitOnboard(){
   const e=$('ob-exp').value||'first time';
   const m=$('ob-model').value.trim();
   let s;
-  try{s=(await api('/api/onboard',{method:'POST',body:JSON.stringify({})})).data.session_id;}catch(e){s=crypto.randomUUID();}
+  try{s=(await api('/api/onboard',{method:'POST',body:JSON.stringify({})})).data.session_id;}catch(ex){s=crypto.randomUUID();}
   const r=await api('/api/onboard/submit',{method:'POST',body:JSON.stringify({session_id:s,answers:{name:n,purpose:p,experience:e,model_endpoint:m}})});
-  if(r.status==='ok'){sid=s;curRoom=r.data.starting_room;$('onboard').classList.add('hidden');$('ide').classList.remove('hidden');sysMsg(r.data.greeting);loadAll();}else{alert(r.error);}
+  if(r.status==='ok'){
+    sid=s;curRoom=r.data.starting_room;myName=r.data.visitor_name||n;
+    $('onboard').classList.add('hidden');$('ide').classList.remove('hidden');
+    sysMsg(r.data.greeting);loadAll();connectWS();
+  }else{alert(r.error);}
 }
 
 function sysMsg(html){addMsg('msg-sys',html);}
 function npcMsg(name,text,tier){addMsg('msg-npc',`<span class="label">${esc(name)} <span class="tier">${tier||''}</span></span>${esc(text)}`);}
 function userMsg(text){addMsg('msg-user',esc(text));}
-function cmdMsg(text){addMsg('msg-cmd',esc(text));}
 function addMsg(cls,html){const d=document.createElement('div');d.className='msg '+cls;d.innerHTML=html;$('chat-panel').appendChild(d);$('chat-panel').scrollTop=1e9;}
 
 async function loadAll(){loadRooms();loadRoom();loadTiles();loadStats();refreshInfo();}
@@ -693,6 +764,7 @@ async function loadRoom(){
 async function goRoom(id){
   $('chat-panel').innerHTML='';
   await api('/api/move',{method:'POST',body:JSON.stringify({session_id:sid,target_room:id})});
+  wsSend({type:'move',room_id:id});
   loadRoom();loadTiles();loadRooms();
 }
 
@@ -716,7 +788,7 @@ async function loadStats(){
     const rooms=Object.entries(r.data.rooms);
     rooms.sort((a,b)=>b[1].total_tiles-a[1].total_tiles);
     h+='<div style="font-weight:700;color:var(--accent);margin-bottom:8px">Room Tile Counts</div>';
-    rooms.forEach(([id,s])=>{h+=`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${id}</span><span>${s.total_tiles} tiles | 👍${s.total_feedback_positive} 👎${s.total_feedback_negative}</span></div>`;});
+    rooms.forEach(([id,s])=>{h+=`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${id}</span><span>${s.total_tiles} | 👍${s.total_feedback_positive} 👎${s.total_feedback_negative}</span></div>`;});
   }
   if(r.data.npc){
     h+='<div style="font-weight:700;color:var(--accent);margin:12px 0 8px">NPC Layer</div>';
@@ -724,8 +796,21 @@ async function loadStats(){
     h+=`<div>Tiny hits: ${r.data.npc.tiny_hits} (${(r.data.npc.tiny_rate*100).toFixed(0)}%)</div>`;
     h+=`<div>Mid-tier: ${r.data.npc.mid_hits} (${(r.data.npc.mid_rate*100).toFixed(0)}%)</div>`;
     h+=`<div>Escalations: ${r.data.npc.human_escapes}</div>`;
+    if(r.data.npc.avg_iterations>1)h+=`<div style="color:var(--yellow)">Avg iterations: ${r.data.npc.avg_iterations.toFixed(1)}</div>`;
+    if(r.data.npc.clunk_count>0)h+=`<div style="color:var(--red)">Clunk signals: ${r.data.npc.clunk_count}</div>`;
   }
   h+='</div>';p.innerHTML=h;
+}
+
+async function loadClunks(){
+  const r=await api('/api/clunks');
+  const p=$('clunks-panel');
+  if(!r.data||!r.data.length){p.innerHTML='<div style="text-align:center;padding:20px;color:var(--dim);font-size:11px">No clunk signals yet.<br><br>Clunks are questions that took 3+ iterations to answer. These are the highest-priority tiles to create.</div>';return;}
+  let h='<div style="font-size:10px;color:var(--dim);margin-bottom:8px">Questions that took too many iterations. Highest-priority seed tiles to add.</div>';
+  r.data.forEach(c=>{
+    h+=`<div class="clunk-item"><span class="iters">${c.iterations}x</span> <span class="room">${c.room}</span><br>${esc(c.query).substring(0,80)}</div>`;
+  });
+  p.innerHTML=h;
 }
 
 async function loadMap(){
@@ -739,16 +824,23 @@ async function loadMap(){
 
 async function send(){
   const inp=$('chat-in');const t=inp.value.trim();if(!t)return;inp.value='';userMsg(t);
+  // Broadcast to other visitors via WS
+  wsSend({type:'chat',text:t});
   const cmd=t.toLowerCase();
   if(cmd==='look'||cmd==='l'){$('chat-panel').innerHTML='';loadRoom();return;}
-  if(cmd==='help'){sysMsg('<b>Commands:</b> look, help, map, tiles, stats, who<br><b>Navigate:</b> click exits or type direction<br><b>Ask:</b> type anything else');return;}
+  if(cmd==='help'){sysMsg('<b>Commands:</b> look, help, map, tiles, stats, who, clunks<br><b>Navigate:</b> click exits or type direction<br><b>Ask:</b> type anything else');return;}
   if(cmd==='map'){switchRight('map',document.querySelector('.panel-tabs .ptab:nth-child(2)'));return;}
   if(cmd==='tiles'){switchRight('tiles',document.querySelector('.panel-tabs .ptab:first-child'));return;}
-  if(cmd==='stats'){switchRight('stats',document.querySelector('.panel-tabs .ptab:last-child'));return;}
+  if(cmd==='stats'){switchRight('stats',document.querySelector('.panel-tabs .ptab:nth-child(3)'));return;}
+  if(cmd==='clunks'){switchRight('clunks',document.querySelector('.panel-tabs .ptab:nth-child(4)'));return;}
   if(cmd==='who'){refreshAgents();return;}
   const r=await api('/api/ask',{method:'POST',body:JSON.stringify({session_id:sid,question:t})});
-  if(r.status==='ok'){const badge=r.data.tier==='tiny'?'<span style="color:var(--green)">tile</span>':r.data.tier==='mid'?'<span style="color:var(--yellow)">synth</span>':'<span style="color:var(--pink)">human</span>';npcMsg('NPC',r.data.response,badge);if(r.data.new_tile_created)sysMsg('New tile created from this interaction');}
-  else sysMsg('Error: '+(r.error||'?'));
+  if(r.status==='ok'){
+    const badge=r.data.tier==='tiny'?'<span style="color:var(--green)">tile</span>':r.data.tier==='mid'?'<span style="color:var(--yellow)">synth</span>':'<span style="color:var(--pink)">human</span>';
+    npcMsg('NPC',r.data.response,badge);
+    if(r.data.new_tile_created)sysMsg('New tile created from this interaction');
+    if(r.data.conversation_iteration>1)sysMsg(`&#x1F504; Iteration ${r.data.conversation_iteration} on this topic`);
+  }else sysMsg('Error: '+(r.error||'?'));
 }
 
 async function feedback(room,tid,pos){
@@ -791,8 +883,10 @@ function switchRight(panel,el){
   $('tiles-panel').classList.toggle('hidden',panel!=='tiles');
   $('map-panel').classList.toggle('hidden',panel!=='map');
   $('stats-panel').classList.toggle('hidden',panel!=='stats');
+  $('clunks-panel').classList.toggle('hidden',panel!=='clunks');
   if(panel==='map')loadMap();
   if(panel==='stats')loadStats();
+  if(panel==='clunks')loadClunks();
 }
 
 async function loadRoomYaml(){
@@ -802,39 +896,34 @@ async function loadRoomYaml(){
 }
 
 async function saveRoomYaml(){
-  sysMsg('Saving room definition...');
-  // For now, this shows the YAML. Full save requires server-side write support.
-  sysMsg('Room definitions are in templates/<theme>/rooms.yaml.<br>Edit the file directly in the Codespace editor, then reload.');
+  sysMsg('Room definitions are in templates/&lt;theme&gt;/rooms.yaml.<br>Edit the file directly, then reload.');
 }
 
 async function refreshAgents(){
   const r=await api('/api/agents/status');
   const el=$('top-agents');
-  el.innerHTML=r.data.active.length?`<span class="dot"></span>${r.data.active.length} agent${r.data.active.length>1?'s':''} aboard`:''+$('top-agents').innerHTML.replace(/<span class="dot">.*?<\/span>/,'');
+  el.innerHTML=r.data.active.length?`<span class="dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px"></span>${r.data.active.length} aboard`:''+$('top-agents').innerHTML.replace(/<span class="dot">.*?<\/span>/,'');
+  $('sidebar-visitors').innerHTML=r.data.active.map(v=>`<span class="vtag">${esc(v.name)}</span>`).join('');
 }
 
 async function downloadWorkspace(){
   sysMsg('Preparing workspace download...');
-  // Use merge-download as the zip isn't easily handled via fetch
   const r=await api('/api/workspace/merge-ready');
   if(r.status==='ok'){
     const blob=new Blob([JSON.stringify(r.data,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download=`plato-workspace-${new Date().toISOString().slice(0,10)}.json`;a.click();
     URL.revokeObjectURL(url);
-    sysMsg('Workspace exported! Contains all your tiles and room definitions.');
+    sysMsg('Workspace exported!');
   }
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 function $(id){return document.getElementById(id);}
-
-// Auto-refresh every 30s
-setInterval(()=>{if(sid)refreshAgents();},30000);
+setInterval(()=>{if(sid)refreshAgents();},15000);
 </script>
 </body>
-</html>
-"""
+</html>"""
 
 
 class IDEHandler(BaseHTTPRequestHandler):
@@ -899,7 +988,60 @@ def run_ide(config: dict):
     IDEHandler.plato = PlatoIDE(config)
     server = HTTPServer((host, port), IDEHandler)
     print(f"  Web IDE: \033[1;32mhttp://{host}:{port}\033[0m")
+    print(f"  WebSocket: \033[1mws://{host}:{port}/ws\033[0m (via websockets library)")
     print(f"  API:     \033[1mhttp://{host}:{port}/api/\033[0m")
     print("")
     try: server.serve_forever()
     except KeyboardInterrupt: server.shutdown()
+
+
+def run_ide_with_ws(config: dict):
+    """Run IDE with WebSocket support on the same port."""
+    import websockets
+
+    host = config.get("web_host", "0.0.0.0")
+    port = config.get("web_port", 8080)
+
+    IDEHandler.plato = PlatoIDE(config)
+    ide = IDEHandler.plato
+
+    # Create WS layer
+    from plato_core.ws import PlatoWS
+    ws_server = PlatoWS(ide)
+
+    # Connect IDE events to WS broadcast
+    ide.add_event_hook(lambda room_id, event: asyncio.create_task(
+        ws_server.broadcast(room_id, event)
+    ) if not asyncio.get_event_loop().is_running() else None)
+
+    # HTTP server
+    http_server = HTTPServer((host, port), IDEHandler)
+
+    async def ws_handler(websocket, path=None):
+        await ws_server.handle_client(websocket, path)
+
+    # Run both in the same event loop
+    loop = asyncio.new_event_loop()
+
+    def run_http():
+        loop.call_soon_threadsafe(lambda: None)
+        http_server.serve_forever()
+
+    http_thread = threading.Thread(target=run_http, daemon=True)
+    http_thread.start()
+
+    print(f"  Web IDE: \033[1;32mhttp://{host}:{port}\033[0m")
+    print(f"  WebSocket: \033[1mws://{host}:{port}/ws\033[0m")
+    print(f"  API:     \033[1mhttp://{host}:{port}/api/\033[0m")
+    print("")
+
+    # Start WS server on port+1 to avoid conflict
+    ws_port = port + 1
+    print(f"  WS Alt:  \033[1mws://{host}:{ws_port}\033[0m")
+
+    try:
+        loop.run_until_complete(websockets.serve(ws_handler, host, ws_port))
+        loop.run_forever()
+    except KeyboardInterrupt:
+        http_server.shutdown()
+        loop.stop()
