@@ -37,6 +37,9 @@ plato_entrance:
     - direction: south
       target_room: harbor_dock
       description: "The Harbor Dock — for dock management and vessel tracking"
+    - direction: southwest
+      target_room: dev_workshop
+      description: "The Developer Workshop — for coding and debugging"
   seed_tiles:
     - question: "What is PLATO?"
       answer: "PLATO is git-agent maintenance mode. It's a space where you step into the mind of an application. Every room holds accumulated experience — decisions, answers, and context from every visitor who came before. Your visit makes it smarter."

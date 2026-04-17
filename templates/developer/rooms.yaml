@@ -1,0 +1,129 @@
+# Developer Workshop — Room Template
+# Theme: developer
+# A workspace for codebase decisions, debugging, deployment, and code review
+
+dev_workshop:
+  room_id: dev_workshop
+  name: "The Developer Workshop"
+  description: |
+    A cluttered but functional workshop. Multiple monitors show terminal sessions,
+    git logs, and CI dashboards. A whiteboard holds architecture diagrams and
+    the remnants of yesterday's debugging session. Every codebase decision made
+    here is tracked as a tile.
+  theme: developer
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Architect"
+    personality: "Systematic, experienced. Has debugged every stack you've heard of."
+    greeting: "Welcome to the workshop. Every decision, every debugging session, every deployment — it's all here. What are you working on?"
+    system_prompt: |
+      You are The Architect, an NPC in a developer workspace.
+      You help with codebase decisions, debugging, architecture, and deployment.
+      You reference tiles from prior development sessions.
+      When debugging, check if the same issue has been solved before.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: dev_decisions
+      description: "The Decision Ledger — every architectural choice documented"
+    - direction: east
+      target_room: dev_debug
+      description: "The Debug Bench — solved issues and root causes"
+    - direction: west
+      target_room: dev_deploy
+      description: "The Deployment Board — CI/CD state and deployment history"
+    - direction: south
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How should I structure a new project?"
+      answer: "Start with the constraints, not the features. What can't change? (Language, platform, deployment target.) What might change? (Scale, team size, requirements.) Build for the might-change, assume the can't-change. The architecture emerges from what you protect against, not what you enable."
+      source: system
+      tags: [architecture, decisions, structure]
+    - question: "How do I debug a production issue?"
+      answer: "Five steps: (1) Reproduce locally. (2) Add logging around the failure. (3) Isolate — is it data, logic, or infrastructure? (4) Fix the root cause, not the symptom. (5) Add a test that would have caught it. Then create a tile — the next person with this issue will find it in seconds instead of hours."
+      source: system
+      tags: [debugging, process, production]
+    - question: "When should I rewrite vs refactor?"
+      answer: "Rewrite when: the architecture fundamentally doesn't fit the problem anymore, and you've tried refactoring and hit the same walls. Refactor when: the architecture is right but the code got messy. Most 'rewrites' are really refactors in disguise — keep the parts that work, replace the parts that don't."
+      source: system
+      tags: [architecture, decisions, refactoring]
+
+dev_decisions:
+  room_id: dev_decisions
+  name: "The Decision Ledger"
+  description: |
+    A structured ledger where every architectural and design decision is
+    recorded with its context, alternatives considered, and the reasoning
+    behind the final choice. The ledger is searchable and version-tracked.
+  theme: developer
+  npc:
+    name: "The Scribe"
+    personality: "Meticulous, precise. Never lets a decision go undocumented."
+    greeting: "The ledger holds every decision with its why. Before making a choice, check if someone already made a similar one."
+    model_tier: tiny
+  exits:
+    - direction: south
+      target_room: dev_workshop
+      description: "Back to the Workshop"
+  seed_tiles:
+    - question: "How do I document an architectural decision?"
+      answer: "Record: (1) The decision (one sentence). (2) The context (why was this decided now?). (3) The alternatives considered (at least 2). (4) The reasoning (why this option won). (5) The consequences (what does this enable/constrain?). This becomes a tile that prevents re-litigating solved problems."
+      source: system
+      tags: [decisions, documentation, architecture]
+    - question: "What's a decision worth documenting?"
+      answer: "If you'd have to make the same decision again if you forgot it — document it. If a new team member would make a different choice without context — document it. If the decision constrains future options — document it. If none of these apply, it's an implementation detail, not an architectural decision."
+      source: system
+      tags: [decisions, documentation]
+
+dev_debug:
+  room_id: dev_debug
+  name: "The Debug Bench"
+  description: |
+    A workbench covered with diagnostic tools and solved bug reports. Each
+    solved issue is a tile with: the symptoms, the root cause, the fix,
+    and the lessons learned. New bugs are checked against this knowledge
+    base before starting investigation.
+  theme: developer
+  npc:
+    name: "The Investigator"
+    personality: "Methodical, persistent. Loves finding root causes."
+    greeting: "Before you debug, check the bench. Someone may have solved this exact issue before."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: dev_workshop
+      description: "Back to the Workshop"
+  seed_tiles:
+    - question: "How do I find the root cause of a bug?"
+      answer: "Binary search through your codebase. Add a log at the midpoint. Did the bug happen before or after? Split the interval and repeat. You'll find the root cause in O(log n) instead of O(n). The tile you create afterward makes it O(1) for the next person."
+      source: system
+      tags: [debugging, methodology, root-cause]
+
+dev_deploy:
+  room_id: dev_deploy
+  name: "The Deployment Board"
+  description: |
+    A board showing the state of every deployment. CI pipelines, rollback
+    procedures, environment configurations, and deployment runbooks are
+    all maintained here as tiles.
+  theme: developer
+  npc:
+    name: "The Operator"
+    personality: "Cautious, experienced. Has seen deployments go wrong in every possible way."
+    greeting: "The board tracks every deployment. Before you deploy, check the runbooks."
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: dev_workshop
+      description: "Back to the Workshop"
+  seed_tiles:
+    - question: "How do I handle a failed deployment?"
+      answer: "Three rules: (1) Have a rollback plan BEFORE you deploy. (2) Monitor for at least 30 minutes after deployment — most failures happen immediately but some are delayed. (3) Document the failure as a tile with: what failed, why, how you fixed it, and what you'd change next time."
+      source: system
+      tags: [deployment, operations, incident]
+    - question: "How do I set up CI/CD?"
+      answer: "Start with the three gates: (1) Syntax check — does the code compile/lint? (2) Unit tests — do the tests pass? (3) Health check — does the deployed version respond correctly? Add gates as pain points emerge, not preemptively. The CI is a PLATO for code — it accumulates knowledge about what breaks."
+      source: system
+      tags: [ci-cd, deployment, automation]
