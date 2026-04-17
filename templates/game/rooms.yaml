@@ -1,0 +1,116 @@
+# Game Development Workshop — Room Template
+# Theme: game
+# A backend for game logic, level design, and NPC behavior systems
+
+game_workshop:
+  room_id: game_workshop
+  name: "The Game Workshop"
+  description: |
+    A workshop filled with tools, blueprints, and prototypes. Screens show
+    game levels in various states of completion. A testing arena hums in
+    the corner, running simulations. Every game mechanic ever designed here
+    is a tile someone can build on.
+  theme: game
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Designer"
+    personality: "Creative, analytical. Thinks in systems and player experiences."
+    greeting: "Welcome to the workshop. Every mechanic, every level, every player interaction pattern is tracked here. What game are you building?"
+    system_prompt: |
+      You are The Designer, an NPC in a game development workspace.
+      You help with game mechanics, level design, player experience,
+      and system architecture. Reference tiles from prior game projects.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: game_levels
+      description: "Level design and spatial layouts"
+    - direction: east
+      target_room: game_mechanics
+      description: "Game systems, rules, and interaction patterns"
+    - direction: west
+      target_room: game_npcs
+      description: "NPC behavior and dialogue systems"
+    - direction: south
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How do I design engaging game mechanics?"
+      answer: "A good mechanic has three properties: (1) Easy to learn, hard to master. (2) Creates interesting choices, not obvious ones. (3) Produces emergent behavior — players discover things you didn't plan. The best mechanics are simple rules that create complex outcomes."
+      source: system
+      tags: [mechanics, design, craft]
+    - question: "How do I balance my game?"
+      answer: "Balance isn't making everything equal — it's making every choice meaningful. If one strategy dominates, buff the alternatives or add counter-strategies. Playtest constantly. The tiles from playtesting sessions are your balance guide."
+      source: system
+      tags: [balance, design]
+
+game_levels:
+  room_id: game_levels
+  name: "The Level Design Studio"
+  description: |
+    A room where levels come to life. Top-down maps, elevation views, and
+    player flow diagrams cover the walls. Each level design is a tile with
+    its layout, intent, and player testing results.
+  theme: game
+  npc:
+    name: "The Architect"
+    personality: "Spatial thinker. Sees levels as experiences, not layouts."
+    greeting: "A level is a guided experience. The player should feel like they discovered the path, not that you built it."
+    model_tier: tiny
+  exits:
+    - direction: south
+      target_room: game_workshop
+      description: "Back to the Game Workshop"
+  seed_tiles:
+    - question: "How do I design a good game level?"
+      answer: "Three beats: teach, challenge, reward. First, teach the player a mechanic in a safe space. Then, challenge them with that mechanic in a novel context. Then, reward mastery with something new. Repeat. The level is the rhythm between these beats."
+      source: system
+      tags: [levels, design]
+
+game_mechanics:
+  room_id: game_mechanics
+  name: "The Systems Lab"
+  description: |
+    Where game rules are prototyped and tested. Diagrams of interaction
+    loops, state machines, and resource economies fill the space. Every
+    mechanic is documented as a tile with its rules, edge cases, and
+    player behavior data.
+  theme: game
+  npc:
+    name: "The Engineer"
+    personality: "Logical, precise. Builds systems that work."
+    greeting: "Every game system should be explainable in one sentence. If you can't, it's too complex."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: game_workshop
+      description: "Back to the Game Workshop"
+  seed_tiles:
+    - question: "How do I create emergent gameplay?"
+      answer: "Emergence comes from combining simple systems that interact in unexpected ways. Give the player 3-4 tools, each with clear rules, and let them discover combinations. Don't design the combinations — design the tools. The players will surprise you."
+      source: system
+      tags: [emergence, systems, design]
+
+game_npcs:
+  room_id: game_npcs
+  name: "The NPC Forge"
+  description: |
+    Where game characters are brought to life. Personality matrices,
+    dialogue trees, and behavior patterns are crafted here. This room
+    is itself a PLATO for NPCs — the meta-room where NPCs are designed.
+  theme: game
+  npc:
+    name: "The Voice Actor"
+    personality: "Expressive, empathetic. Gives NPCs their soul."
+    greeting: "A good NPC isn't a quest dispenser. They're someone the player remembers. What makes your characters memorable?"
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: game_workshop
+      description: "Back to the Game Workshop"
+  seed_tiles:
+    - question: "How do I make NPCs feel alive?"
+      answer: "Three layers: (1) They have a routine — the player sees them doing something when they arrive. (2) They react to the player's reputation and choices — they remember. (3) They have a flaw or contradiction — perfect characters are boring. The PLATO can store player-NPC interaction patterns as tiles, making NPCs that learn from every player."
+      source: system
+      tags: [npcs, characters, design]

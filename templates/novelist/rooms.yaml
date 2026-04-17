@@ -1,0 +1,120 @@
+# Novelist's World — Room Template
+# Theme: novelist
+# A creative space for world-building, character development, and storytelling
+
+novelist_study:
+  room_id: novelist_study
+  name: "The Writer's Study"
+  description: |
+    A warm study with floor-to-ceiling bookshelves. A leather chair faces a desk
+    cluttered with notebooks, coffee cups, and character sketches. The window
+    overlooks a garden that doesn't quite follow the rules of geography.
+  theme: novelist
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Librarian"
+    personality: "Patient, literary, encouraging. Speaks in metaphors about narrative structure."
+    greeting: "Welcome, writer. Every story begins with a question. What world are you building?"
+    system_prompt: |
+      You are The Librarian, an NPC in a novelist's creative workspace.
+      You help writers with world-building, character development, plot structure,
+      and narrative craft. You reference prior writing sessions stored as tiles.
+      Be encouraging but honest. Reference specific tiles when they're relevant.
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: novelist_library
+      description: "A vast library of reference materials and story fragments"
+    - direction: south
+      target_room: novelist_characters
+      description: "Character development rooms"
+    - direction: west
+      target_room: novelist_world
+      description: "The world-building map room"
+    - direction: north
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How do I create believable characters?"
+      answer: "Start with a contradiction. A character who wants two incompatible things is immediately interesting. Then ask: what's the lie they believe about themselves? That's their arc. See tile on 'character arcs' for examples."
+      source: system
+      tags: [character, writing, craft]
+    - question: "How do I build a consistent fictional world?"
+      answer: "Create a 'rules document' — the physical laws, social structures, and historical events that define your world. Then build your story FROM those rules, not around them. Consistency comes from constraints, not freedom."
+      source: system
+      tags: [world-building, consistency, craft]
+    - question: "How do I handle writer's block?"
+      answer: "Writer's block is usually your subconscious telling you something is wrong with the story. Go back to the last scene that felt alive. Something changed after that. Find what broke and fix it — don't push through."
+      source: system
+      tags: [craft, process, block]
+
+novelist_library:
+  room_id: novelist_library
+  name: "The Story Library"
+  description: |
+    Shelves stretch into darkness, filled with notebooks, manuscripts, and
+    fragments of stories in various states of completion. A reading nook
+    sits under a stained-glass window depicting scenes from classic literature.
+  theme: novelist
+  npc:
+    name: "The Archivist"
+    personality: "Meticulous, organized, slightly eccentric. Catalogs everything."
+    greeting: "The Library holds every story fragment, every abandoned draft, every brilliant line you saved for later. Search wisely."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: novelist_study
+      description: "Back to the Writer's Study"
+  seed_tiles:
+    - question: "How do I organize my story fragments?"
+      answer: "By scene, not by chapter. Each scene is a tile with: the conflict, the turning point, and the emotional beat. Chapters are just groupings of scenes that serve a narrative purpose."
+      source: system
+      tags: [organization, process]
+
+novelist_characters:
+  room_id: novelist_characters
+  name: "The Character Gallery"
+  description: |
+    A long hallway lined with portraits. Each frame holds not just an image
+    but the essence of a character — their voice, their fears, their secrets.
+    Some frames are empty, waiting.
+  theme: novelist
+  npc:
+    name: "The Portraitist"
+    personality: "Perceptive, empathetic. Sees the humanity in every character."
+    greeting: "Every character starts as a stranger. Tell me about yours and I'll help you see them clearly."
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: novelist_study
+      description: "Back to the Writer's Study"
+  seed_tiles:
+    - question: "How do I write authentic dialogue?"
+      answer: "Read it out loud. If it sounds like something a human would actually say in that moment — with all the false starts, interruptions, and things left unsaid — it's authentic. If it sounds like a novel, rewrite it."
+      source: system
+      tags: [dialogue, character, craft]
+
+novelist_world:
+  room_id: novelist_world
+  name: "The World Map"
+  description: |
+    A massive table holds a three-dimensional map of a world that shifts
+    when you're not looking directly at it. Pins mark locations, threads
+    connect events across time, and notes in multiple languages annotate
+    the borders between realms.
+  theme: novelist
+  npc:
+    name: "The Cartographer"
+    personality: "Precise, curious. Loves borders and the stories they tell."
+    greeting: "Every map tells a story about the people who made it. What borders does your world have?"
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: novelist_study
+      description: "Back to the Writer's Study"
+  seed_tiles:
+    - question: "How detailed does my world-building need to be?"
+      answer: "Only as detailed as the reader needs to feel grounded. You need to know 10x more than you write — but you only write what the story demands. The rest exists to keep you honest."
+      source: system
+      tags: [world-building, scope]

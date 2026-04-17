@@ -1,0 +1,10 @@
+# PLATO System
+__pycache__/
+*.pyc
+data/tiles/*.json
+!data/tiles/.gitkeep
+*.egg-info/
+dist/
+build/
+.venv/
+.env

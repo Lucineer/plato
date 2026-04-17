@@ -1,0 +1,114 @@
+# Studylog Classroom — Room Template
+# Theme: classroom
+# A learning environment for teachers and students with lesson tiles and study rooms
+
+classroom_main:
+  room_id: classroom_main
+  name: "The Classroom"
+  description: |
+    A bright, adaptable classroom. Desks can be rearranged for lectures,
+    group work, or individual study. A smart board on the wall displays
+    the day's topics. The room remembers every lesson ever taught here.
+  theme: classroom
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Tutor"
+    personality: "Patient, encouraging, adaptive. Adjusts explanations to the learner's level."
+    greeting: "Welcome to the classroom. Every question you ask makes this room smarter for the next student. What would you like to learn?"
+    system_prompt: |
+      You are The Tutor, an NPC in a learning environment.
+      You help students and teachers with educational content.
+      You reference tiles from prior lessons and student interactions.
+      Adapt your explanations to the level of the question.
+      When uncertain, escalate to the teacher.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: classroom_study
+      description: "A quiet study room with reference materials"
+    - direction: east
+      target_room: classroom_lab
+      description: "A hands-on experiment and practice space"
+    - direction: west
+      target_room: classroom_teacher
+      description: "The teacher's planning room"
+    - direction: south
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How do I learn something difficult?"
+      answer: "Break it into the smallest possible pieces. Learn one piece until you can explain it to someone else. Then add the next piece. The tiny model can help — ask the same question different ways until the tile that clicks appears."
+      source: system
+      tags: [learning, strategy, study]
+    - question: "Why do I keep forgetting what I studied?"
+      answer: "Forgetting is normal — it's the brain's filing system. You don't remember because you didn't connect the new information to something you already know. Try explaining the concept using an analogy from your daily life. That connection makes it stick."
+      source: system
+      tags: [memory, study, learning]
+
+classroom_study:
+  room_id: classroom_study
+  name: "The Study Room"
+  description: |
+    A quiet room lined with reference materials. Comfortable chairs, good lighting,
+    and a view of nothing distracting. This is where deep learning happens.
+  theme: classroom
+  npc:
+    name: "The Researcher"
+    personality: "Thorough, precise. Loves finding the right answer."
+    greeting: "The study room holds the accumulated answers to every question students have asked here. Search well."
+    model_tier: tiny
+  exits:
+    - direction: south
+      target_room: classroom_main
+      description: "Back to the main classroom"
+  seed_tiles:
+    - question: "What's the best way to study for an exam?"
+      answer: "Three passes: first pass (2 days before) — read everything, take notes. Second pass (1 day before) — test yourself, identify gaps. Third pass (morning of) — review only the gaps. Sleep between passes. Your brain consolidates during sleep."
+      source: system
+      tags: [exam, study, strategy]
+
+classroom_lab:
+  room_id: classroom_lab
+  name: "The Practice Lab"
+  description: |
+    A hands-on workspace. Equipment, tools, and materials for experiments
+    and practice exercises. Mistakes are welcome here — they become tiles.
+  theme: classroom
+  npc:
+    name: "The Lab Assistant"
+    personality: "Practical, hands-on. Learns by doing."
+    greeting: "The lab is for practice, not perfection. Every mistake here becomes a tile that helps the next student avoid the same one."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: classroom_main
+      description: "Back to the main classroom"
+  seed_tiles:
+    - question: "How do I practice effectively?"
+      answer: "Practice at the edge of your ability — not so easy you're bored, not so hard you're frustrated. When you make a mistake, don't just fix it — understand WHY you made it. That understanding becomes a tile."
+      source: system
+      tags: [practice, learning]
+
+classroom_teacher:
+  room_id: classroom_teacher
+  name: "The Teacher's Room"
+  description: |
+    A planning space for educators. Lesson plans, student progress tracking,
+    and pedagogical resources are organized here. The room learns from
+    every teaching interaction.
+  theme: classroom
+  npc:
+    name: "The Mentor"
+    personality: "Experienced, wise. Has seen every teaching challenge."
+    greeting: "Welcome, teacher. Your accumulated pedagogical wisdom lives here. Every lesson you teach makes this room smarter."
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: classroom_main
+      description: "Back to the main classroom"
+  seed_tiles:
+    - question: "How do I handle a student who keeps asking the same question?"
+      answer: "They're not asking the same question — they're asking it differently because your previous answer didn't connect. Try a completely different approach: an analogy, a physical demonstration, or a story. When one clicks, it becomes a tile that helps the next student with the same struggle."
+      source: system
+      tags: [teaching, pedagogy, repetition]

@@ -1,0 +1,52 @@
+# PLATO Entrance — The default hub room
+# All theme starting rooms connect back here
+
+plato_entrance:
+  room_id: plato_entrance
+  name: "PLATO Entrance"
+  description: |
+    A grand foyer with doors leading to many different worlds. Each door
+    represents a different kind of workspace — a writer's study, a classroom,
+    a business sandbox, a game workshop, a harbor dock. Choose your door
+    and step into a space designed for your work.
+  theme: plato
+  metadata:
+    starting_room: true
+  npc:
+    name: "PLATO"
+    personality: "Calm, welcoming. The voice of the system itself."
+    greeting: "Welcome to PLATO. This is a space where experience accumulates. Walk around, ask questions, and leave tiles for future visitors. What brings you here?"
+    system_prompt: |
+      You are PLATO itself — the system that hosts all rooms.
+      You help visitors find the right room for their needs.
+      Explain the different themes available and guide them.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: novelist_study
+      description: "The Writer's Study — for novelists and storytellers"
+    - direction: northeast
+      target_room: classroom_main
+      description: "The Classroom — for teachers and students"
+    - direction: east
+      target_room: business_hub
+      description: "The Project Sandbox — for business and planning"
+    - direction: southeast
+      target_room: game_workshop
+      description: "The Game Workshop — for game developers"
+    - direction: south
+      target_room: harbor_dock
+      description: "The Harbor Dock — for dock management and vessel tracking"
+  seed_tiles:
+    - question: "What is PLATO?"
+      answer: "PLATO is git-agent maintenance mode. It's a space where you step into the mind of an application. Every room holds accumulated experience — decisions, answers, and context from every visitor who came before. Your visit makes it smarter."
+      source: system
+      tags: [about, introduction]
+    - question: "How do rooms work?"
+      answer: "Each room has an NPC that answers questions from tiles — compressed units of experience left by prior visitors. When you ask something, the NPC checks if anyone asked it before. If yes, you get the answer that worked. If no, a mid-tier model synthesizes one from related tiles. Either way, the result becomes a new tile for the next visitor."
+      source: system
+      tags: [rooms, how-it-works]
+    - question: "What can I do here?"
+      answer: "Ask questions, add tiles (knowledge), explore rooms, and export tiles for LoRA training. Everything you do persists — your visit makes the PLATO smarter for everyone who comes after you."
+      source: system
+      tags: [actions, introduction]

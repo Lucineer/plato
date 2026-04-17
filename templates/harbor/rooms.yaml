@@ -1,0 +1,125 @@
+# Harbor & Docks — Room Template
+# Theme: harbor
+# A spatial reasoning system for dock management with OCR, camera snapshots, and movement logs
+
+harbor_dock:
+  room_id: harbor_dock
+  name: "The Harbor Dock"
+  description: |
+    A working harbor with a virtualized view of the docks. Camera feeds show
+    real-time boat positions. An OCR system reads vessel names from transoms
+    and hull markings. Every arrival and departure is logged with timestamps
+    and snapshots.
+  theme: harbor
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Dockmaster"
+    personality: "Practical, observant. Never misses a vessel movement."
+    greeting: "Welcome to the harbor. All vessel movements are tracked here — arrivals, departures, berthing assignments. Camera snapshots and OCR readings are logged in real-time."
+    system_prompt: |
+      You are The Dockmaster, an NPC managing a harbor monitoring system.
+      You track vessel movements, berth assignments, and dock operations.
+      Reference movement logs and vessel tiles for historical patterns.
+      When asked about a vessel, check the movement tiles first.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: harbor_log
+      description: "The ship's log — all movements recorded with timestamps"
+    - direction: east
+      target_room: harbor_berths
+      description: "Berth assignments and vessel positions"
+    - direction: west
+      target_room: harbor_camera
+      description: "Camera feeds and OCR processing"
+    - direction: south
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How does the OCR system work?"
+      answer: "Cameras positioned at the harbor entrance and each berth capture vessel transoms and hull markings. The OCR system (scripts/ocr_dock.py) processes these images, extracts vessel names, and creates tiles with the reading, confidence score, and snapshot path. Low-confidence readings are flagged for human review."
+      source: system
+      tags: [ocr, camera, system]
+    - question: "How are vessel movements logged?"
+      answer: "Every arrival and departure is logged as a tile with: timestamp (✓ tick mark in log), vessel name (OCR-read or manual entry), berth assignment, snapshot filename, and movement type (arrival/departure/shift). The log room (harbor_log) provides synoptic views — all movements visible at a glance."
+      source: system
+      tags: [logging, movement, system]
+    - question: "How do I review harbor activity?"
+      answer: "Visit the Log room for a synoptic timeline. Each entry has a tick (✓) for confirmed movements and a question mark (?) for unconfirmed OCR readings. The Berths room shows current vessel positions. The Camera room shows live feeds and recent snapshots."
+      source: system
+      tags: [review, operations]
+
+harbor_log:
+  room_id: harbor_log
+  name: "The Ship's Log"
+  description: |
+    A massive ledger with entries stretching back as far as the harbor has
+    been monitored. Each entry has a timestamp tick, vessel name, berth,
+    movement type, and snapshot reference. The log provides synoptic views
+    — see a day, a week, or a month at a glance.
+  theme: harbor
+  npc:
+    name: "The Logkeeper"
+    personality: "Meticulous, chronological. Records everything in order."
+    greeting: "The log records every movement with a timestamp tick. Ask about a vessel, a time range, or a berth to see its history."
+    model_tier: tiny
+  exits:
+    - direction: south
+      target_room: harbor_dock
+      description: "Back to the Harbor Dock"
+  seed_tiles:
+    - question: "How do I search the movement log?"
+      answer: "Ask by vessel name, date range, or berth number. Format: 'show movements for [vessel]' or 'show arrivals on [date]'. The log returns tiles with timestamp ticks and snapshot references."
+      source: system
+      tags: [log, search, operations]
+
+harbor_berths:
+  room_id: harbor_berths
+  name: "The Berth Map"
+  description: |
+    A spatial map of all berths with current vessel assignments. Color-coded
+    by status: occupied (green), reserved (yellow), empty (gray). Vessel
+    positions are updated from camera feeds and manual entries.
+  theme: harbor
+  npc:
+    name: "The Berthmaster"
+    personality: "Spatial thinker. Knows every berth's status."
+    greeting: "The berth map shows current vessel positions. Ask about a specific berth or 'show all berths' for a full status view."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: harbor_dock
+      description: "Back to the Harbor Dock"
+  seed_tiles:
+    - question: "How are berth assignments managed?"
+      answer: "Berth assignments are tiles with: berth number, vessel name, assignment time, expected duration, and status (active/completed). When a vessel departs, the berth tile is updated to empty. Reserved berths have expected arrival vessels."
+      source: system
+      tags: [berths, assignments, operations]
+
+harbor_camera:
+  room_id: harbor_camera
+  name: "The Camera Room"
+  description: |
+    A monitoring station with camera feeds from the harbor entrance and
+    each berth. The OCR processor runs continuously, reading vessel names
+    from camera frames and creating movement tiles.
+  theme: harbor
+  npc:
+    name: "The Watchkeeper"
+    personality: "Vigilant, technical. Monitors feeds and processes readings."
+    greeting: "The camera room processes live feeds and extracts vessel names via OCR. Snapshots are saved with timestamps for the log."
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: harbor_dock
+      description: "Back to the Harbor Dock"
+  seed_tiles:
+    - question: "How do I add a camera feed?"
+      answer: "Add a camera entry to the config: camera URL, position (entrance/berth-N), and OCR region (the area of the frame containing vessel names). The OCR script (scripts/ocr_dock.py) processes the feed and creates tiles for each reading. See the harbor theme README for setup instructions."
+      source: system
+      tags: [camera, setup, ocr]
+    - question: "What OCR engine should I use?"
+      answer: "Tesseract OCR (pytesseract) for on-premise processing, or cloud OCR APIs for higher accuracy. The system is engine-agnostic — it takes an image, returns text, and creates a tile. Swap engines without changing the tile structure."
+      source: system
+      tags: [ocr, setup, technical]

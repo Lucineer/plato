@@ -1,0 +1,115 @@
+# Business Sandbox — Room Template
+# Theme: business
+# A digital twin workspace for business planning, project management, and strategic decisions
+
+business_hub:
+  room_id: business_hub
+  name: "The Project Sandbox"
+  description: |
+    A flexible workspace that mirrors your project. Whiteboards cover every wall,
+    sticky notes track decisions, and a timeline stretches across the floor.
+    This is where ideas become plans and plans become reality.
+  theme: business
+  metadata:
+    starting_room: true
+  npc:
+    name: "The Strategist"
+    personality: "Analytical, pragmatic. Connects dots between decisions."
+    greeting: "Welcome to your project sandbox. Every decision you make here is tracked, connected, and learnable. What are you building?"
+    system_prompt: |
+      You are The Strategist, an NPC in a business planning workspace.
+      You help with project planning, strategic decisions, and connecting
+      past decisions to current challenges. Reference tiles from prior
+      planning sessions.
+    model_tier: tiny
+  exits:
+    - direction: north
+      target_room: business_decisions
+      description: "The decision log — every choice documented with reasoning"
+    - direction: east
+      target_room: business_market
+      description: "Market analysis and competitive intelligence"
+    - direction: west
+      target_room: business_team
+      description: "Team coordination and knowledge management"
+    - direction: south
+      target_room: plato_entrance
+      description: "Back to the main entrance"
+  seed_tiles:
+    - question: "How do I prioritize features for my product?"
+      answer: "Rank by: (user impact × frequency of use) / effort to build. Features that many users need daily and are easy to build are quick wins. Features that few users need rarely and are hard to build are traps. Everything else is a judgment call — and that judgment should be a tile."
+      source: system
+      tags: [product, strategy, prioritization]
+    - question: "How do I validate a business idea?"
+      answer: "Three questions: (1) Will someone pay for this? (2) Can I build it? (3) Can I reach the people who want it? If you can't answer all three with evidence, not assumptions, you have a hypothesis, not a business. Test it."
+      source: system
+      tags: [validation, startup, strategy]
+
+business_decisions:
+  room_id: business_decisions
+  name: "The Decision Log"
+  description: |
+    A quiet room with a massive ledger. Every decision the project has made
+    is recorded here — not just what was decided, but WHY. The reasoning,
+    the alternatives considered, the trade-offs accepted.
+  theme: business
+  npc:
+    name: "The Historian"
+    personality: "Meticulous, objective. Never forgets a decision."
+    greeting: "Every decision lives here with its reasoning. When you face a similar choice, the past can guide you."
+    model_tier: tiny
+  exits:
+    - direction: south
+      target_room: business_hub
+      description: "Back to the Project Sandbox"
+  seed_tiles:
+    - question: "Why should I document decisions?"
+      answer: "Because in 6 months you'll face a similar choice and won't remember why you decided what you did. The tile doesn't just record the decision — it records the reasoning. Future-you (or future-teammate) can make a BETTER decision because they understand YOURS."
+      source: system
+      tags: [decisions, documentation, process]
+
+business_market:
+  room_id: business_market
+  name: "The Market Intelligence Room"
+  description: |
+    Screens and reports cover the walls. Competitive analysis, market trends,
+    customer feedback patterns. The room synthesizes market signals into
+    actionable intelligence.
+  theme: business
+  npc:
+    name: "The Analyst"
+    personality: "Data-driven, curious. Sees patterns in noise."
+    greeting: "The market speaks in signals. This room helps you listen."
+    model_tier: tiny
+  exits:
+    - direction: west
+      target_room: business_hub
+      description: "Back to the Project Sandbox"
+  seed_tiles:
+    - question: "How do I understand my market?"
+      answer: "Three layers: (1) What people say they want (surveys, interviews) — often wrong. (2) What people actually do (analytics, purchase data) — more honest. (3) What people don't know they want yet (emergent patterns) — most valuable. The PLATO captures layer 2 and 3 from every visitor interaction."
+      source: system
+      tags: [market, analysis, strategy]
+
+business_team:
+  room_id: business_team
+  name: "The Team Room"
+  description: |
+    A collaboration space where team knowledge is shared and preserved.
+    When someone leaves, their expertise stays in the tiles. When someone
+    joins, they step into accumulated wisdom.
+  theme: business
+  npc:
+    name: "The Coordinator"
+    personality: "Organized, empathetic. Keeps the team connected."
+    greeting: "Team knowledge lives here. When someone new joins, they can visit this room and have months of context immediately."
+    model_tier: tiny
+  exits:
+    - direction: east
+      target_room: business_hub
+      description: "Back to the Project Sandbox"
+  seed_tiles:
+    - question: "How do I preserve team knowledge?"
+      answer: "Don't rely on wikis — nobody reads them. Instead, let the PLATO learn from every interaction. When a team member answers a question, that answer becomes a tile. When someone solves a problem, the solution becomes a tile. The knowledge accumulates through work, not through documentation."
+      source: system
+      tags: [team, knowledge, process]
