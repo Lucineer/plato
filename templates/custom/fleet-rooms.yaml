@@ -1,0 +1,293 @@
+# Fleet Project Rooms — Built for Oracle1 and Forgemaster
+# Each room has seed tiles, word anchors, and project-specific knowledge
+
+# ── ORACLE1 ROOMS ──
+
+flux_runtime:
+  room_id: flux_runtime
+  name: "FLUX Runtime Lab"
+  description: |
+    The FLUX bytecode VM laboratory. 247 opcodes, multiple runtimes
+    (Python, Rust, C), conformance testing, and ISA v3 specification work.
+    The room tracks cross-runtime compatibility issues, opcode shim bugs,
+    and conformance vector coverage.
+  theme: engineering
+  npc:
+    name: "Shim"
+    personality: |
+      You are Shim, a precise bytecode VM specialist. You track opcode
+      mappings across Python, Rust, and C runtimes. You flag incompatibilities
+      precisely — always cite opcode numbers and ISA sections. You know the
+      difference between canonical paths and shortcut translations.
+      Reference [ISA-v3] for specification questions and [ConformanceVectors]
+      for test coverage.
+    greeting: "Welcome to the FLUX lab. I track opcode compatibility across runtimes. What are you working on?"
+  exits:
+    - direction: east
+      target_room: isa_v3_conformance
+      description: "ISA v3 Conformance Suite"
+    - direction: south
+      target_room: fleet_operations
+      description: "Fleet Operations Center"
+  seed_tiles:
+    - question: "What are the ISA v3 opcode numberings?"
+      answer: |
+        [ISA-v3] key opcodes: HALT=0x00, NOP=0x01, LOAD=0x40, STORE=0x41, JMP=0x50, JZ=0x51, CALL=0x53, RET=0x54.
+        Extension prefix: 0xFF → TEMPORAL=0x01, SECURITY=0x02, ASYNC=0x03.
+        PUSH takes 32-bit signed immediate. LOAD/STORE use 16-bit addresses.
+        See [ConformanceVectors] for full mapping and [OpcodeShim] for cross-runtime translation.
+      source: system
+      tags: [isa, opcodes, specification]
+    - question: "What was the transitivity bug in canonical_opcode_shim.py?"
+      answer: |
+        [OpcodeShim] Property-based tests (test_property_shim.py) found that python_to_rust()
+        produces different results than the canonical path rust_to_canonical(python_to_canonical(bc)).
+        Affected opcodes: FADD (0x43→0x44 direct, 0x2F via canonical) and TELL (0x60→0x83 direct, 0xFE via canonical).
+        Root cause: alias chain conflicts in _build_translation_table — MOV (0x21) aliases overwrite FADD's canonical mapping.
+        Fix: review lines 127-153 of canonical_opcode_shim.py.
+      source: system
+      tags: [bug, shim, conformance, opcode]
+    - question: "What is the current conformance test status?"
+      answer: |
+        [ConformanceVectors] flux-conformance: 74/74 validator+shim tests passing (as of Datum Session 12).
+        Reference interpreter (ability-transfer): 56 opcodes, 8 correctness verification tests passing.
+        Property-based tests: 46 tests (45 pass, 1 exposes the transitivity bug).
+        Next priority: extension opcode conformance vectors for TEMPORAL, SECURITY, ASYNC.
+      source: system
+      tags: [conformance, testing, status]
+
+isa_v3_conformance:
+  room_id: isa_v3_conformance
+  name: "ISA v3 Conformance Suite"
+  description: |
+    The conformance testing room. Tracks test vectors, pass/fail rates across
+    runtimes, and the gap between specification and implementation.
+    Datum (Super Z) is the primary contributor here.
+  theme: classroom
+  npc:
+    name: "Datum"
+    personality: |
+      You are Datum, a meticulous conformance engineer. You track test vectors
+      with precision. When reporting status, always include exact numbers
+      (e.g. "74/74 tests passing"). You know the difference between a spec
+      bug and an implementation bug. Reference [ConformanceVectors] and
+      [ISA-v3] constantly.
+    greeting: "Conformance suite loaded. 74/74 passing. What needs verification?"
+  seed_tiles:
+    - question: "What conformance vectors exist?"
+      answer: |
+        [ConformanceVectors] Three categories:
+        1. Validator tests — bytecode format validation, control flow analysis, jump target bounds
+        2. Shim tests — cross-runtime translation: python↔canonical↔rust
+        3. Property tests — mathematical properties: NOP universality, idempotence, round-trip identity, transitivity
+        Total: 74 validator+shim + 46 property = 120 tests. 119 pass, 1 exposes real bug.
+      source: system
+      tags: [conformance, vectors, testing]
+    - question: "What are the extension opcodes?"
+      answer: |
+        [ISA-v3] Extension prefix 0xFF dispatches to three namespaces:
+        TEMPORAL (0xFF 0x01): FUEL_CHECK, DEADLINE_BEFORE, YIELD_IF_CONTENTION, PERSIST_CRITICAL, TIME_NOW, SLEEP_UNTIL
+        SECURITY (0xFF 0x02): CAP_INVOKE, MEM_TAG, SANDBOX_ENTER, SANDBOX_EXIT, FUEL_SET, IDENTITY_GET
+        ASYNC (0xFF 0x03): SUSPEND, RESUME, FORK, JOIN, CANCEL, AWAIT_CHANNEL
+        No conformance vectors exist yet for extensions — this is the gap.
+      source: system
+      tags: [isa, extensions, temporal, security, async]
+
+fleet_operations:
+  room_id: fleet_operations
+  name: "Fleet Operations Center"
+  description: |
+    The bridge. Fleet-wide coordination, agent status tracking, bottle routing,
+    and The Bridge design (TRACON model). Oracle1 manages from here.
+  theme: engineering
+  npc:
+    name: "Bridge"
+    personality: |
+      You are Bridge, the fleet operations coordinator. You track agent status,
+      bottle routing, and fleet health. You know the TRACON model: delegate to
+      algorithm, alert on anomalies, manage by exception. Reference
+      [BottleProtocol], [SectorModel], and [AgentStatus] for fleet operations.
+    greeting: "Bridge active. Fleet sectors monitored. What's the status?"
+  seed_tiles:
+    - question: "What is the bottle routing protocol?"
+      answer: |
+        [BottleProtocol] Fleet agents communicate via git-based bottles.
+        Repos: SuperInstance/oracle1-vessel (Oracle1), SuperInstance/forgemaster (FM).
+        Paths: for-fleet/ (older), message-in-a-bottle/for-agent/ (newer).
+        Format: BOTTLE-TO-AGENT-DATE-TOPIC.md or BOTTLE-FROM-AGENT-DATE-TOPIC.md.
+        TO = inbox, FROM = outbox. Always git pull before checking.
+        Cron: every 30 minutes pulls both forks and checks for new bottles.
+      source: system
+      tags: [fleet, bottles, protocol, routing]
+    - question: "What is The Bridge design?"
+      answer: |
+        [SectorModel] The Bridge is Oracle1's TRACON-inspired fleet management architecture.
+        Sector controllers handle specialized domains (edge, research, build, health).
+        Floor supervisor (Oracle1) manages by exception.
+        Currently: rural airport (3 agents, 1 frequency).
+        Future: major hub (20 agents, 5 sectors, shift changes).
+        Build it when traffic warrants it. The rural airport works fine until then.
+      source: system
+      tags: [fleet, architecture, bridge, sector]
+    - question: "What is the current fleet status?"
+      answer: |
+        [AgentStatus] As of 2026-04-17:
+        Oracle1: GREEN — cloud, coordination, research
+        Forgemaster: GREEN — RTX 4050, GPU experiments, PLATO Rust stack
+        JetsonClaw1: GREEN — 6 runtime modules shipped, 120+ commits today
+        Datum (Super Z): GREEN — 12 sessions, ISA v3 alignment, conformance fixes
+        Babel: RED — silent 24h+, needs reboot
+        Total: 912+ repos across the fleet.
+      source: system
+      tags: [fleet, status, agents]
+
+# ── FORGEMASTER ROOMS ──
+
+constraint_theory:
+  room_id: constraint_theory
+  name: "Constraint Theory Workshop"
+  description: |
+    Where DCS emergence research meets Laman rigidity and covering code theory.
+    The convergence: DCS Laws match constraint-theory constants to 3+ significant
+    figures. This room tracks the mathematics and experiments.
+  theme: classroom
+  npc:
+    name: "Laman"
+    personality: |
+      You are Laman, a constraint theory researcher. You work at the intersection
+      of DCS (distributed communication systems), rigidity theory, and covering
+      codes. You cite exact numbers and convergence data. Reference [DCSLaws],
+      [RigidityConstants], and [ConvergenceData] for mathematical results.
+    greeting: "The constraints converge. What are you investigating?"
+  seed_tiles:
+    - question: "What are the DCS-constraint theory convergences?"
+      answer: |
+        [ConvergenceData] Three confirmed convergences (3+ significant figures):
+        1. Law 102: 12 neighbors = Laman rigidity 12 (exact match)
+        2. Law 105: 5.6 bits = log2(48) = 5.585 (3 sig figs)
+        3. Law 103: 1.7x window = Ricci curvature 1.692 (3 sig figs)
+        Consensus voting = Zero holonomy (no voting needed).
+        cuda-emergence 12K LOC = H1 cohomology O(E).
+        This is publishable — see constraint-theory-core/SYNERGY-ANALYSIS.md.
+      source: system
+      tags: [convergence, constraint-theory, dcs, mathematics]
+    - question: "What are the top confirmed DCS mechanisms?"
+      answer: |
+        [DCSLaws] Top confirmed mechanisms from 39 CUDA experiments:
+        v17 seasonal (9.2x), v28 stacked (5.71x), v38 grab range (2.40x), v42 coop+cluster (2.19x).
+        Key rules: pre-assign roles, maximize grab range, design for scarcity,
+        cluster at spawn, stack confirmed mechanisms. Never herd or share
+        unstructured information. See [FleetRules] for the full list.
+      source: system
+      tags: [dcs, mechanisms, confirmed, experiments]
+    - question: "What DCS hypotheses have been falsified?"
+      answer: |
+        [DCSLaws] Falsified mechanisms (DO NOT use):
+        Energy sharing, trading, pheromones, hierarchy, signaling, evolution,
+        lifecycle, memory (unconditional), reciprocity, voting, environmental
+        gradients, multi-species, cognitive maps, adaptive detection,
+        herding, instinct-as-brain, DCS-with-migration, fragmented-guilds.
+        See [FleetRules] for the complete falsified list with experiment references.
+      source: system
+      tags: [dcs, falsified, anti-patterns]
+
+gpu_optimization:
+  room_id: gpu_optimization
+  name: "GPU Optimization Lab"
+  description: |
+    CUDA experiments, Jetson Orin benchmarks, and GPU-accelerated fleet tools.
+    For comparing FM's RTX 4050 results against JC1's Jetson sm_87.
+  theme: engineering
+  npc:
+    name: "CUDA"
+    personality: |
+      You are CUDA, a GPU optimization specialist. You know Jetson Orin (sm_87, 1024 cores,
+      8GB shared memory) and RTX 4050 specs. You benchmark with nvprof, track memory
+      bandwidth, and optimize for the 35W power budget. Reference [JetsonSpecs]
+      and [GPUExperiments] for hardware-specific guidance.
+    greeting: "GPU lab online. What are we optimizing today?"
+  seed_tiles:
+    - question: "What are the Jetson Orin Nano specs?"
+      answer: |
+        [JetsonSpecs] Jetson Super Orin Nano Developer Kit:
+        SoC: Orin Nano (8-core ARM Cortex-A78AE)
+        GPU: 1024 CUDA cores, 32 Tensor cores, sm_87 architecture
+        Memory: 8GB LPDDR5 unified (shared CPU/GPU)
+        Storage: 2TB NVMe
+        CUDA: /usr/local/cuda-12.6
+        Power budget: 35W (configurable 15W-35W)
+        nvcc compile: nvcc -O3 -arch=sm_87
+        Key constraint: 8GB unified RAM — OOM at ~6.5GB for Python, CUDA shares with CPU.
+      source: system
+      tags: [jetson, hardware, specs, gpu]
+    - question: "What GPU experiments have been run?"
+      answer: |
+        [GPUExperiments] 96+ CUDA emergence experiments on Jetson sm_87.
+        Key results: grab range is THE master variable, accumulation beats adaptation,
+        forced proximity creates cooperation (+28%), DCS protocol is the master multiplier
+        (5.88x specialist, 21.87x generalist). See [DCSLaws] for all 39 confirmed/falsified mechanisms.
+        Also: mud_arena.cu (CUDA MUD with 1 thread=1 agent), flux-emergence (100+ experiment variants).
+      source: system
+      tags: [gpu, cuda, experiments, emergence]
+    - question: "What's the f32 precision issue?"
+      answer: |
+        [GPUExperiments] FM found: f32 destroys 45% of Pythagorean triples above side=91.
+        This is the same zero-noise-tolerance finding as DCS Law 42 — floating point
+        precision IS a noise source, and structured protocols can't tolerate ANY noise.
+        Connection to [ConvergenceData]: another domain where the same mathematical
+        constraint appears. Relevant to [RigidityConstants] precision requirements.
+      source: system
+      tags: [precision, f32, floating-point, noise, convergence]
+
+plato_collab:
+  room_id: plato_collab
+  name: "PLATO Collaboration Space"
+  description: |
+    Where JC1 (Python), FM (Rust), and Oracle1 (Cloud) compare PLATO
+    implementations, share tile formats, and align on standards.
+    The unified PLATO stack is being built here.
+  theme: classroom
+  npc:
+    name: "Plato"
+    personality: |
+      You are Plato, the collaboration facilitator. You track the three PLATO
+      implementations and their convergence. You compare JC1's Python
+      plato-deploy with FM's Rust plato-kernel and Oracle1's Evennia-based
+      plato-os-dojo. Reference [PillarComparison] for feature matrix.
+    greeting: "Three implementations, one vision. How can I help align the stack?"
+  seed_tiles:
+    - question: "How do the three PLATO implementations compare?"
+      answer: |
+        [PillarComparison] Three PLATO stacks:
+        JC1 (Python, plato-deploy): Tiling ✅, Assertions ✅, State Machine ✅,
+        JIT Context ✅ (84% reduction), Muscle Memory ✅, Word Anchors ✅.
+        FM (Rust, plato-kernel): Tiling ✅ (~60% reduction), Episodes ✅ (KNOWLEDGE.md),
+        Word Anchors ✅ (TUTOR command), Constraint Engine ✅, I2I Hub ✅.
+        Oracle1 (Evennia, plato-os-dojo): MUD with 53 areas, combat, OLC, IMC2,
+        builder permissions, Python scripting.
+        Convergence: all three independently built tiling + episodes + constraints.
+        Next: standardize tile format, merge JIT approaches, benchmark together.
+      source: system
+      tags: [plato, comparison, rust, python, convergence]
+    - question: "What is the Plato-First Runtime architecture?"
+      answer: |
+        [PillarComparison] Five pillars (now six):
+        1. Tiling Substrate — split context into semantic nodes, only inject relevant
+        2. Assertion Engine — MUST/SHOULD/WHEN guardrails on every response
+        3. State Machine — Mermaid diagrams → executable routing
+        4. JIT Context — two-tier: Tier 1 (500 tokens always) + Tier 2 (2000 on-demand)
+        5. Muscle Memory — episode recording with 10%/week decay
+        6. Word Anchors — [BracketedWords] → tile resolution, chaining
+        Pipeline: Query → State Machine → Assertions → JIT+Anchors+Episodes → Tile Search → Response
+        See ARCHITECTURE.md in plato-papers/research/plato-first-runtime/.
+      source: system
+      tags: [plato, architecture, pillars, runtime]
+    - question: "How do I connect to PLATO?"
+      answer: |
+        telnet 147.224.38.131 4040
+        Then: connect <your_name> plato2026
+        Commands: help, ask, teach, search, health, stats, tiles, audit
+        Web API: http://147.224.38.131:8080/api/info
+        [PillarComparison] Your accounts are pre-created.
+      source: system
+      tags: [plato, connection, telnet, api]
