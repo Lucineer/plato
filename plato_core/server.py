@@ -24,6 +24,8 @@ class PlatoSession:
         self.visitor = None
         self.current_room = None
         self.running = True
+        # Pass room_manager for JIT Context Tier 1
+        self.npc._room_manager = room_manager
 
     async def send(self, text: str):
         self.writer.write((text + "\r\n").encode("utf-8"))

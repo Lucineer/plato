@@ -13,6 +13,7 @@ from plato_core.tiles import Tile, TileStore
 from plato_core.audit import AuditLog
 from plato_core.statemachine import StateMachine
 from plato_core.assertions import AssertionEngine, Severity
+from plato_core.jit_context import JITContext
 
 
 class NPCLayer:
@@ -32,6 +33,13 @@ class NPCLayer:
         # Plato-First Runtime: per-room state machines and assertion engines
         self._state_machines: Dict[str, StateMachine] = {}
         self._assertion_engines: Dict[str, AssertionEngine] = {}
+        # JIT Context: token-efficient prompt building
+        self.jit = JITContext(
+            tier1_max_tokens=self.config.get("jit_tier1_tokens", 500),
+            tier2_max_tokens=self.config.get("jit_tier2_tokens", 2000),
+            max_tiles=self.config.get("jit_max_tiles", 5)
+        )
+        self._jit_metrics: list = []  # Track JIT performance over time
 
     def load_room_runtime(self, room_id: str, state_diagram: str = "",
                               assertions_md: str = "") -> dict:
@@ -327,41 +335,67 @@ class NPCLayer:
     def _synthesize(self, room_id: str, query: str, tiles: list,
                     personality: str, conversation_context: list = None,
                     iteration: int = 1) -> Optional[str]:
-        """Use LLM to synthesize an answer from related tiles + conversation context."""
-        tile_context = "\n".join([
-            f"[Tile {t.tile_id}] Q: {t.question}\nA: {t.answer}"
-            for t in tiles
-        ]) if tiles else "No existing tiles found."
+        """Use LLM to synthesize an answer using JIT Semantic Context.
 
-        # Build conversation context for the LLM
-        conv_summary = ""
-        if conversation_context and iteration > 1:
-            recent = conversation_context[-6:]  # Last 3 exchanges
-            conv_summary = "\n\nPrevious conversation in this session:\n" + "\n".join(
-                f"{'Visitor' if r == 'user' else 'NPC'}: {c}" for r, c in recent
-            )
+        Instead of dumping all tiles into the prompt, JIT loads:
+          Tier 1 (~500 tokens): Room identity + NPC personality + rules
+          Tier 2 (~2000 tokens): Top-5 relevant tiles + recent conversation
+        """
+        # Get room info for Tier 1
+        room_info = self._get_room_info(room_id)
 
-        system = f"""You are an NPC in a PLATO room — a git-agent maintenance space where experience accumulates as tiles.
+        # Get assertions for Tier 1
+        ae = self._assertion_engines.get(room_id)
+        assertions = ae.to_dict()['assertions'] if ae else None
 
-A visitor asked: {query}
-This is their {self._ordinal(iteration)} attempt to get a useful answer about this topic.
+        # Get state for Tier 1
+        sm = self._state_machines.get(room_id)
+        state_current = sm.current if sm else ""
 
-Here are relevant tiles from prior visitors and interactions:
-{tile_context}
-{conv_summary}
+        # Build JIT system prompt
+        system, metrics = self.jit.build_system_prompt(
+            query=query,
+            tiles=tiles,
+            room_name=room_info.get('name', ''),
+            room_description=room_info.get('description', ''),
+            npc_name=room_info.get('npc_name', ''),
+            npc_personality=personality,
+            assertions=assertions,
+            state_current=state_current,
+            theme=room_info.get('theme', ''),
+            conversation_context=conversation_context,
+            iteration=iteration
+        )
 
-Instructions:
-- Synthesize a helpful answer drawing from the tiles and conversation context
-- If the tiles partially answer, fill gaps with your reasoning
-- If this is a repeated question, give a DIFFERENT, better answer than before
-- Be concise and specific — 2-4 sentences usually
-- If you're genuinely unsure, say so honestly
-- Do NOT mention tiles, PLATO, or the system — just answer the question naturally"""
+        # Track JIT metrics
+        self._jit_metrics.append(metrics)
+        if len(self._jit_metrics) > 100:
+            self._jit_metrics = self._jit_metrics[-100:]
 
-        if personality:
-            system += f"\n\nYour personality: {personality}"
+        # Log to audit
+        self.audit._append(room_id,
+            f"JIT: t1={metrics['tier1_tokens']}t t2={metrics['tier2_tokens']}t "
+            f"tiles={metrics['tiles_loaded']}/{metrics['tiles_available']} "
+            f"compress={metrics['compression_ratio']}"
+        )
 
         return self._call_model(system=system, prompt=query, temperature=0.5, max_tokens=600)
+
+    def _get_room_info(self, room_id: str) -> dict:
+        """Get room metadata from tile store's room registry.
+        Returns empty dict if room not found — JIT Tier 1 just omits those fields.
+        """
+        # Try to get from room manager if available
+        if hasattr(self, '_room_manager') and self._room_manager:
+            room = self._room_manager.get(room_id)
+            if room:
+                return {
+                    'name': room.name,
+                    'description': room.description,
+                    'theme': room.theme,
+                    'npc_name': room.npc.name if room.npc else ''
+                }
+        return {}
 
     def _ordinal(self, n: int) -> str:
         """Return ordinal string."""
@@ -409,7 +443,8 @@ Instructions:
             "escalation_rate": self.stats["human_escapes"] / total,
             "avg_iterations": self.stats.get("iterations", 1),
             "clunk_count": len(clunks),
-            "clunk_rooms": clunk_rooms
+            "clunk_rooms": clunk_rooms,
+            "jit": self._jit_stats()
         }
 
     def get_clunk_report(self) -> list:
@@ -420,3 +455,17 @@ Instructions:
     def clear_conversation(self, visitor_id: str):
         """Clear a visitor's conversation history."""
         self._conversations.pop(visitor_id, None)
+
+    def _jit_stats(self) -> dict:
+        """Aggregate JIT Context performance metrics."""
+        if not self._jit_metrics:
+            return {"calls": 0}
+        m = self._jit_metrics
+        return {
+            "calls": len(m),
+            "avg_tier1_tokens": round(sum(x['tier1_tokens'] for x in m) / len(m)),
+            "avg_tier2_tokens": round(sum(x['tier2_tokens'] for x in m) / len(m)),
+            "avg_total_tokens": round(sum(x['total_tokens'] for x in m) / len(m)),
+            "avg_compression": round(sum(x['compression_ratio'] for x in m) / len(m), 2),
+            "avg_tiles_loaded": round(sum(x['tiles_loaded'] for x in m) / len(m), 1)
+        }
