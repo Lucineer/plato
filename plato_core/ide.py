@@ -15,7 +15,10 @@ from urllib.parse import urlparse, parse_qs
 from plato_core.rooms import RoomManager
 from plato_core.tiles import TileStore, Tile
 from plato_core.npc import NPCLayer
+from plato_core.jit_context import JITContext
 from plato_core.onboard import detect_persona, onboard_questions, process_onboarding
+
+PUBLIC_API_KEY = os.environ.get("PLATO_PUBLIC_API_KEY", "")
 
 
 class PlatoIDE:
@@ -74,6 +77,64 @@ class PlatoIDE:
         }
         self._log("session_start", session_id[:8])
         return self.sessions[session_id]
+
+    def handle_public_api(self, path, method, body=None, query=None, api_key=None):
+        """Public API for subcontractors. API key auth."""
+        if not PUBLIC_API_KEY:
+            return {"status": "error", "error": "Public API not configured"}
+        if api_key != PUBLIC_API_KEY:
+            return {"status": "error", "error": "Invalid API key"}
+        if path == "/v1/health" and method == "GET":
+            rooms = self.room_manager.all_rooms()
+            total = sum(self.tile_store.room_stats(r)["total_tiles"] for r in rooms)
+            return {"status": "ok", "data": {"version": "0.3.0", "rooms": len(rooms), "total_tiles": total, "api": "plato-public-v1"}}
+        if path == "/v1/rooms" and method == "GET":
+            rooms = []
+            for rid, room in self.room_manager.all_rooms().items():
+                stats = self.tile_store.room_stats(rid)
+                rooms.append({"room_id": rid, "name": room.name, "theme": room.theme, "description": room.description, "npc": room.npc.name if room.npc else None, "tiles": stats["total_tiles"], "exits": {e.direction: e.target_room for e in room.exits}})
+            return {"status": "ok", "data": rooms}
+        if "/v1/room/" in path and "/tiles" in path and method == "GET":
+            room_id = path.split("/v1/room/")[1].split("/tiles")[0]
+            limit = int((query or {}).get("limit", [50])[0])
+            offset = int((query or {}).get("offset", [0])[0])
+            tiles = self.tile_store.all_tiles(room_id)
+            return {"status": "ok", "data": {"room_id": room_id, "total_tiles": len(tiles), "tiles": [{"tile_id": t.tile_id, "question": t.question, "answer": t.answer, "source": t.source, "score": t.score, "tags": t.tags} for t in tiles[offset:offset+limit]]}}
+        if "/v1/room/" in path and "/context" in path and method == "GET":
+            room_id = path.split("/v1/room/")[1].split("/context")[0]
+            room = self.room_manager.get(room_id)
+            if not room: return {"status": "error", "error": f"Room {room_id} not found"}
+            try:
+                jit = JITContext()
+                tiles = self.tile_store.all_tiles(room_id)
+                top = sorted(tiles, key=lambda t: t.score, reverse=True)[:20]
+                prompt, metrics = jit.build_system_prompt(
+                    query="", tiles=top,
+                    room_name=room.name, room_description=room.description,
+                    npc_name=room.npc.name if room.npc else "",
+                    npc_personality=room.npc.personality if room.npc else "",
+                    theme=room.theme)
+                return {"status": "ok", "data": {"room_id": room_id, "system_prompt": prompt, "metrics": metrics, "tiles_used": len(top)}}
+            except Exception as e:
+                return {"status": "error", "error": f"Context build failed: {str(e)}"}
+        if "/v1/room/" in path and "/ask" in path and method == "POST":
+            room_id = path.split("/v1/room/")[1].split("/ask")[0]
+            question = (body or {}).get("question", "")
+            if not question: return {"status": "error", "error": "question required"}
+            room = self.room_manager.get(room_id)
+            if not room: return {"status": "error", "error": f"Room {room_id} not found"}
+            result = self.npc.handle_query(room_id, "subcontractor", question, room.npc.personality if room.npc else "")
+            return {"status": "ok", "data": result}
+        if path == "/v1/search" and method == "GET":
+            q = (query or {}).get("q", [""])[0]
+            if not q: return {"status": "error", "error": "q required"}
+            results = []
+            for rid in self.room_manager.all_rooms():
+                for t in self.tile_store.search(rid, q, limit=3):
+                    results.append({"room_id": rid, "question": t.question, "answer": t.answer[:300], "score": t.score})
+            results.sort(key=lambda x: x["score"], reverse=True)
+            return {"status": "ok", "data": results[:15]}
+        return {"status": "error", "error": f"Unknown: {method} {path}"}
 
     def handle_api(self, path, method, body=None, query=None):
         query = query or {}
@@ -959,6 +1020,9 @@ class IDEHandler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         q = parse_qs(urlparse(self.path).query)
         if p in ("/", "/index.html"): self._html(INDEX_HTML); return
+        if p.startswith("/v1/"):
+            api_key = q.get("api_key", [None])[0] or self.headers.get("Authorization", "").replace("Bearer ", "")
+            self._json(self.plato.handle_public_api(p, "GET", query=q, api_key=api_key)); return
         if p == "/api/workspace/download":
             r = self.plato.handle_api("/api/workspace/download", "GET", query=q)
             if r.get("_zip_buffer"):
@@ -978,6 +1042,9 @@ class IDEHandler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         cl = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(cl)) if cl > 0 else {}
+        if p.startswith("/v1/"):
+            api_key = body.get("api_key") or self.headers.get("Authorization", "").replace("Bearer ", "")
+            self._json(self.plato.handle_public_api(p, "POST", body=body, api_key=api_key)); return
         if p.startswith("/api/"): self._json(self.plato.handle_api(p, "POST", body=body)); return
         self._json({"status": "error", "error": "Not found"}, 404)
 

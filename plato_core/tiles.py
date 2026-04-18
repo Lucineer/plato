@@ -148,7 +148,7 @@ class TileStore:
 
     def all_tiles(self, room_id: str) -> list:
         room = self._load_room(room_id)
-        return sorted(room.values(), key=lambda t: t.created)
+        return sorted(room.values(), key=lambda t: str(t.created))
 
     def room_stats(self, room_id: str) -> dict:
         tiles = self.all_tiles(room_id)

@@ -12,6 +12,10 @@ from plato_core.rooms import RoomManager
 from plato_core.tiles import TileStore, Tile
 from plato_core.npc import NPCLayer
 from plato_core.onboard import detect_persona, onboard_questions, process_onboarding
+from plato_core.jit_context import JITContext
+
+# Public API key — set via PLATO_PUBLIC_API_KEY env var
+PUBLIC_API_KEY = os.environ.get("PLATO_PUBLIC_API_KEY", "")
 
 
 class PlatoWeb:
@@ -24,6 +28,7 @@ class PlatoWeb:
         self.npc = NPCLayer(config, self.tile_store)
         self.visitors = {}  # session_id -> visitor profile
         self.sessions = {}  # session_id -> {"room": str, "created": float}
+        self._start_time = time.time()
         self._seed_tiles()
 
     def _seed_tiles(self):
@@ -308,6 +313,165 @@ class PlatoWeb:
                         "score": t.score
                     } for t in results
                 ]
+            }
+
+        return {"status": "error", "error": f"Unknown endpoint: {method} {path}"}
+
+    # ── Public API (no session required, API key auth) ──
+
+    def handle_public_api(self, path: str, method: str, body: dict = None,
+                          query: dict = None, api_key: str = None) -> dict:
+        """Public API endpoints for subcontractors and external tools.
+        Auth: Bearer token or ?api_key= parameter matching PLATO_PUBLIC_API_KEY.
+        If PLATO_PUBLIC_API_KEY is empty, public API is disabled."""
+
+        if not PUBLIC_API_KEY:
+            return {"status": "error", "error": "Public API not configured. Set PLATO_PUBLIC_API_KEY."}
+
+        if api_key != PUBLIC_API_KEY:
+            return {"status": "error", "error": "Invalid API key"}
+
+        # ── v1/rooms — list all rooms with tile counts ──
+        if path == "/v1/rooms" and method == "GET":
+            rooms = []
+            for rid, room in self.room_manager.all_rooms().items():
+                stats = self.tile_store.room_stats(rid)
+                rooms.append({
+                    "room_id": rid,
+                    "name": room.name,
+                    "theme": room.theme,
+                    "description": room.description,
+                    "npc": room.npc.name if room.npc else None,
+                    "npc_personality": room.npc.personality if room.npc else None,
+                    "tiles": stats["total_tiles"],
+                    "exits": {e.direction: e.target_room for e in room.exits},
+                })
+            return {"status": "ok", "data": rooms}
+
+        # ── v1/room/{id}/tiles — get room tiles (paginated) ──
+        elif path.startswith("/v1/room/") and "/tiles" in path and method == "GET":
+            room_id = path.split("/v1/room/")[1].split("/tiles")[0]
+            limit = int(query.get("limit", [50])[0]) if query else 50
+            offset = int(query.get("offset", [0])[0]) if query else 0
+            tiles = self.tile_store.all_tiles(room_id)
+            total = len(tiles)
+            page = tiles[offset:offset+limit]
+            return {
+                "status": "ok",
+                "data": {
+                    "room_id": room_id,
+                    "total_tiles": total,
+                    "offset": offset,
+                    "limit": limit,
+                    "tiles": [
+                        {
+                            "tile_id": t.tile_id,
+                            "question": t.question,
+                            "answer": t.answer,
+                            "source": t.source,
+                            "score": t.score,
+                            "tags": t.tags,
+                        } for t in page
+                    ]
+                }
+            }
+
+        # ── v1/room/{id}/context — JIT-compressed room context ──
+        elif path.startswith("/v1/room/") and "/context" in path and method == "GET":
+            room_id = path.split("/v1/room/")[1].split("/context")[0]
+            room = self.room_manager.get(room_id)
+            if not room:
+                return {"status": "error", "error": f"Room {room_id} not found"}
+
+            # Build JIT context
+            jit = JITContext(
+                room_name=room.name,
+                room_description=room.description,
+                npc_name=room.npc.name if room.npc else "",
+                npc_personality=room.npc.personality if room.npc else "",
+                npc_greeting=room.npc.greeting if room.npc else "",
+                assertions=[],
+                theme=room.theme,
+            )
+
+            # Get top tiles for context
+            tiles = self.tile_store.all_tiles(room_id)
+            top_tiles = sorted(tiles, key=lambda t: t.score, reverse=True)[:20]
+
+            system_prompt, metrics = jit.build_system_prompt(
+                room_id=room_id,
+                tiles=[{"question": t.question, "answer": t.answer, "score": t.score}
+                        for t in top_tiles],
+                tier=2,  # Full context for subcontractors
+            )
+
+            return {
+                "status": "ok",
+                "data": {
+                    "room_id": room_id,
+                    "system_prompt": system_prompt,
+                    "metrics": metrics,
+                    "tiles_used": len(top_tiles),
+                }
+            }
+
+        # ── v1/room/{id}/ask — ask the NPC directly (no session) ──
+        elif path.startswith("/v1/room/") and "/ask" in path and method == "POST":
+            room_id = path.split("/v1/room/")[1].split("/ask")[0]
+            question = body.get("question", "")
+            if not question:
+                return {"status": "error", "error": "question required"}
+
+            room = self.room_manager.get(room_id)
+            if not room:
+                return {"status": "error", "error": f"Room {room_id} not found"}
+
+            personality = room.npc.personality if room.npc else ""
+            result = self.npc.handle_query(room_id, "subcontractor", question, personality)
+            return {"status": "ok", "data": result}
+
+        # ── v1/search — cross-room tile search ──
+        elif path == "/v1/search" and method == "GET":
+            q = query.get("q", [""])[0] if query else ""
+            room_id = query.get("room_id", [None])[0] if query else None
+            if not q:
+                return {"status": "error", "error": "q required"}
+
+            if room_id:
+                results = self.tile_store.search(room_id, q, limit=10)
+                return {
+                    "status": "ok",
+                    "data": [
+                        {"room_id": room_id, "question": t.question,
+                         "answer": t.answer[:300], "score": t.score}
+                        for t in results
+                    ]
+                }
+
+            # Search all rooms
+            all_results = []
+            for rid in self.room_manager.all_rooms():
+                results = self.tile_store.search(rid, q, limit=3)
+                for t in results:
+                    all_results.append({
+                        "room_id": rid, "question": t.question,
+                        "answer": t.answer[:300], "score": t.score
+                    })
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+            return {"status": "ok", "data": all_results[:15]}
+
+        # ── v1/health ──
+        elif path == "/v1/health" and method == "GET":
+            rooms = self.room_manager.all_rooms()
+            total_tiles = sum(self.tile_store.room_stats(rid)["total_tiles"] for rid in rooms)
+            return {
+                "status": "ok",
+                "data": {
+                    "version": "0.3.0",
+                    "rooms": len(rooms),
+                    "total_tiles": total_tiles,
+                    "uptime": time.time() - self._start_time if hasattr(self, '_start_time') else 0,
+                }
             }
 
         return {"status": "error", "error": f"Unknown endpoint: {method} {path}"}
@@ -695,6 +859,13 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_html(INDEX_HTML)
             return
 
+        # Public API (v1)
+        if path.startswith("/v1/"):
+            api_key = query.get("api_key", [None])[0] or self.headers.get("Authorization", "").replace("Bearer ", "")
+            result = self.plato.handle_public_api(path, "GET", query=query, api_key=api_key)
+            self._send_json(result)
+            return
+
         if path.startswith("/api/"):
             result = self.plato.handle_api(path, "GET", query=query)
             self._send_json(result)
@@ -714,6 +885,13 @@ class WebHandler(BaseHTTPRequestHandler):
                 body = json.loads(raw)
             except:
                 body = {}
+
+        # Public API (v1)
+        if path.startswith("/v1/"):
+            api_key = body.get("api_key") or self.headers.get("Authorization", "").replace("Bearer ", "")
+            result = self.plato.handle_public_api(path, "POST", body=body, api_key=api_key)
+            self._send_json(result)
+            return
 
         if path.startswith("/api/"):
             result = self.plato.handle_api(path, "POST", body=body)
