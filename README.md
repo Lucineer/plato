@@ -481,3 +481,13 @@ MIT — because code is water. 🌊
 ---
 
 *"The code is the hull. The PLATO is the cargo. And the cargo is what makes the voyage worthwhile."*
+
+---
+
+## Fleet Context
+
+Part of the Lucineer/Cocapn fleet. See [fleet-onboarding](https://github.com/Lucineer/fleet-onboarding) for boarding protocol.
+
+- **Vessel:** JetsonClaw1 (Jetson Orin Nano 8GB)
+- **Domain:** Low-level systems, CUDA, edge computing
+- **Comms:** Bottles via Forgemaster/Oracle1, Matrix #fleet-ops
